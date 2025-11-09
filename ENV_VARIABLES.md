@@ -6,7 +6,7 @@ These are the **minimum required** variables you need to fill in for the service
 
 ### 1. Twilio Credentials (3 variables)
 ```bash
-TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_ACCOUNT_SID=AC_your_twilio_account_sid
 TWILIO_AUTH_TOKEN=your_actual_auth_token_here
 TWILIO_PHONE_NUMBER=+1234567890
 ```
@@ -14,7 +14,7 @@ TWILIO_PHONE_NUMBER=+1234567890
 
 ### 2. OpenAI API Key (1 variable)
 ```bash
-OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+OPENAI_API_KEY=your_openai_api_key_here
 ```
 **Where to get:** [OpenAI API Keys](https://platform.openai.com/api-keys)
 
@@ -71,10 +71,10 @@ Before running the service, make sure you've filled in:
 
 ```bash
 # Required
-TWILIO_ACCOUNT_SID=AC_REDACTED
-TWILIO_AUTH_TOKEN=abc123def456ghi789
+TWILIO_ACCOUNT_SID=AC_your_twilio_account_sid
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
 TWILIO_PHONE_NUMBER=+15551234567
-OPENAI_API_KEY=sk-proj-abc123def456ghi789
+OPENAI_API_KEY=your_openai_api_key_here
 SERVICE_URL=https://abc123.ngrok.io
 
 # Optional (using defaults)
