@@ -5,23 +5,29 @@
 These are the **minimum required** variables you need to fill in for the service to work:
 
 ### 1. Twilio Credentials (3 variables)
+
 ```bash
 TWILIO_ACCOUNT_SID=AC_your_twilio_account_sid
 TWILIO_AUTH_TOKEN=your_actual_auth_token_here
 TWILIO_PHONE_NUMBER=+1234567890
 ```
+
 **Where to get:** [Twilio Console](https://console.twilio.com/)
 
 ### 2. OpenAI API Key (1 variable)
+
 ```bash
 OPENAI_API_KEY=your_openai_api_key_here
 ```
+
 **Where to get:** [OpenAI API Keys](https://platform.openai.com/api-keys)
 
 ### 3. Service URL (1 variable)
+
 ```bash
 SERVICE_URL=https://your-ngrok-url.ngrok.io
 ```
+
 **Note:** Start with `http://localhost:3000`, then update to your ngrok URL when testing
 
 ---
@@ -83,4 +89,3 @@ BUSINESS_NAME=My Business
 BUSINESS_TIMEZONE=America/New_York
 TEST_MODE=true
 ```
-
