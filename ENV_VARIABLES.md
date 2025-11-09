@@ -7,9 +7,9 @@ These are the **minimum required** variables you need to fill in for the service
 ### 1. Twilio Credentials (3 variables)
 
 ```bash
-TWILIO_ACCOUNT_SID=AC_your_twilio_account_sid
-TWILIO_AUTH_TOKEN=your_actual_auth_token_here
-TWILIO_PHONE_NUMBER=+1234567890
+TWILIO_ACCOUNT_SID
+TWILIO_AUTH_TOKEN
+TWILIO_PHONE_NUMBER
 ```
 
 **Where to get:** [Twilio Console](https://console.twilio.com/)
@@ -25,7 +25,7 @@ OPENAI_API_KEY=your_openai_api_key_here
 ### 3. Service URL (1 variable)
 
 ```bash
-SERVICE_URL=https://your-ngrok-url.ngrok.io
+SERVICE_URL
 ```
 
 **Note:** Start with `http://localhost:3000`, then update to your ngrok URL when testing
@@ -37,12 +37,12 @@ SERVICE_URL=https://your-ngrok-url.ngrok.io
 These have default values but you can customize them:
 
 ```bash
-PORT=3000                                    # Server port
-BUSINESS_NAME=My Business                   # Your business name
-BUSINESS_TIMEZONE=America/New_York          # Your timezone
-APPOINTMENT_DURATION_MINUTES=30              # Default appointment length
-MINIMUM_NOTICE_HOURS=2                       # Minimum advance booking time
-TEST_MODE=true                               # Set to false when ready for Google Calendar
+PORT                                    # Server port
+BUSINESS_NAME                   # Your business name
+BUSINESS_TIMEZONE          # Your timezone
+APPOINTMENT_DURATION_MINUTES=              # Default appointment length
+MINIMUM_NOTICE_HOURS                       # Minimum advance booking time
+TEST_MODE                               # Set to false when ready for Google Calendar
 ```
 
 ---
@@ -52,9 +52,9 @@ TEST_MODE=true                               # Set to false when ready for Googl
 These are only needed when `TEST_MODE=false`:
 
 ```bash
-GOOGLE_CLIENT_ID=your_google_client_id_here
-GOOGLE_CLIENT_SECRET=your_google_client_secret_here
-GOOGLE_REFRESH_TOKEN=your_google_refresh_token_here
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+GOOGLE_REFRESH_TOKEN
 ```
 
 ---
@@ -77,15 +77,15 @@ Before running the service, make sure you've filled in:
 
 ```bash
 # Required
-TWILIO_ACCOUNT_SID=AC_your_twilio_account_sid
-TWILIO_AUTH_TOKEN=your_twilio_auth_token
-TWILIO_PHONE_NUMBER=+15551234567
-OPENAI_API_KEY=your_openai_api_key_here
-SERVICE_URL=https://abc123.ngrok.io
+TWILIO_ACCOUNT_SID
+TWILIO_AUTH_TOKEN
+TWILIO_PHONE_NUMBER
+OPENAI_API_KEY
+SERVICE_URL
 
 # Optional (using defaults)
-PORT=3000
-BUSINESS_NAME=My Business
-BUSINESS_TIMEZONE=America/New_York
-TEST_MODE=true
+PORT
+BUSINESS_NAME
+BUSINESS_TIMEZONE
+TEST_MODE
 ```
