@@ -29,7 +29,7 @@ router.post('/voice/incoming', async (req: Request, res: Response) => {
   
   // Gather speech input
   const gather = twiml.gather({
-    input: 'speech',
+    input: ['speech'],
     speechTimeout: 'auto',
     action: `${config.serviceUrl}/twilio/voice/gather`,
     method: 'POST',
@@ -88,7 +88,7 @@ router.post('/voice/gather', async (req: Request, res: Response) => {
     if (!dateTime) {
       twiml.say({ voice: 'alice' }, "I'm sorry, I couldn't understand the date and time. Let me ask again.");
       const gather = twiml.gather({
-        input: 'speech',
+        input: ['speech'],
         speechTimeout: 'auto',
         action: `${config.serviceUrl}/twilio/voice/gather`,
         method: 'POST',
@@ -164,7 +164,7 @@ router.post('/voice/gather', async (req: Request, res: Response) => {
     twiml.say({ voice: 'alice' }, aiResponse.response);
     
     const gather = twiml.gather({
-      input: 'speech',
+      input: ['speech'],
       speechTimeout: 'auto',
       action: `${config.serviceUrl}/twilio/voice/gather`,
       method: 'POST',
