@@ -108,8 +108,16 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
       isComplete: aiResponse.isComplete,
       hasExtractedData: !!aiResponse.extractedData,
     });
-  } catch (error) {
-    console.error(`Error processing conversation for ${CallSid}:`, error);
+  } catch (error: any) {
+    console.error(`❌ Error processing conversation for ${CallSid}:`);
+    console.error(`   Error message: ${error?.message || "Unknown error"}`);
+    console.error(`   Error type: ${error?.constructor?.name || "Unknown"}`);
+    console.error(`   Error stack:`, error?.stack);
+    console.error(
+      `   Full error:`,
+      JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+    );
+
     const twiml = new VoiceResponse();
     twiml.say(
       { voice: "alice" },

@@ -75,6 +75,19 @@ export async function processConversation(
   userMessage: string,
   session: CallSession
 ): Promise<{ response: string; isComplete: boolean; extractedData?: any }> {
+  // Verify API key is available
+  if (!config.openai.apiKey) {
+    console.error("[OpenAI] API key is missing!");
+    throw new Error("OpenAI API key is not configured");
+  }
+
+  console.log(
+    `[OpenAI] Processing message: "${userMessage.substring(0, 50)}..."`
+  );
+  console.log(
+    `[OpenAI] Session history length: ${session.conversationHistory.length}`
+  );
+
   // Build conversation history
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
@@ -88,6 +101,7 @@ export async function processConversation(
   try {
     // Use configurable model or fallback to gpt-3.5-turbo (more widely available)
     const model = process.env.OPENAI_MODEL || "gpt-3.5-turbo";
+    console.log(`[OpenAI] Using model: ${model}`);
 
     const completion = await openai.chat.completions.create({
       model,
