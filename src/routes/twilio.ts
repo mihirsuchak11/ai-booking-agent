@@ -58,6 +58,7 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
   const { CallSid, SpeechResult, From } = req.body;
 
   console.log(`Speech input for ${CallSid}: ${SpeechResult}`);
+  console.log(`Full request body:`, JSON.stringify(req.body, null, 2));
 
   const session = sessionStore.getSession(CallSid);
   if (!session) {
@@ -74,17 +75,65 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
 
   const userMessage = SpeechResult || "";
 
+  // Handle empty speech input
+  if (!userMessage || userMessage.trim().length === 0) {
+    console.log(`Empty speech input for ${CallSid}`);
+    const twiml = new VoiceResponse();
+    twiml.say(
+      { voice: "alice" },
+      "I didn't catch that. Could you please repeat what you said?"
+    );
+    const gather = twiml.gather({
+      input: ["speech"],
+      speechTimeout: "auto",
+      action: `${config.serviceUrl}/twilio/voice/gather`,
+      method: "POST",
+    });
+    gather.say({ voice: "alice" }, "Please tell me what you need.");
+    res.type("text/xml");
+    res.send(twiml.toString());
+    return;
+  }
+
   // Add user message to conversation history
   session.conversationHistory.push({ role: "user", content: userMessage });
 
   // Process with OpenAI
-  const aiResponse = await processConversation(userMessage, session);
+  let aiResponse;
+  try {
+    console.log(`Processing user message with OpenAI: "${userMessage}"`);
+    aiResponse = await processConversation(userMessage, session);
+    console.log(`OpenAI response received:`, {
+      response: aiResponse.response,
+      isComplete: aiResponse.isComplete,
+      hasExtractedData: !!aiResponse.extractedData,
+    });
+  } catch (error) {
+    console.error(`Error processing conversation for ${CallSid}:`, error);
+    const twiml = new VoiceResponse();
+    twiml.say(
+      { voice: "alice" },
+      "I'm sorry, I'm experiencing technical difficulties. Please try again in a moment."
+    );
+    const gather = twiml.gather({
+      input: ["speech"],
+      speechTimeout: "auto",
+      action: `${config.serviceUrl}/twilio/voice/gather`,
+      method: "POST",
+    });
+    gather.say({ voice: "alice" }, "Please continue.");
+    res.type("text/xml");
+    res.send(twiml.toString());
+    return;
+  }
 
   // Add assistant response to conversation history
   session.conversationHistory.push({
     role: "assistant",
     content: aiResponse.response,
   });
+
+  console.log(`Sending AI response to Twilio: "${aiResponse.response}"`);
 
   const twiml = new VoiceResponse();
 

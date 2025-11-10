@@ -3,6 +3,15 @@ import { config } from "../config/env";
 import { CallSession } from "../state/sessions";
 import { getBusinessConfig, getAvailableTimeSlots } from "./businessRules";
 
+// Log API key status (without exposing the actual key)
+const apiKeyStatus = config.openai.apiKey
+  ? `Set (${config.openai.apiKey.substring(
+      0,
+      7
+    )}...${config.openai.apiKey.substring(config.openai.apiKey.length - 4)})`
+  : "NOT SET";
+console.log(`[OpenAI] API Key Status: ${apiKeyStatus}`);
+
 const openai = new OpenAI({
   apiKey: config.openai.apiKey,
 });
@@ -77,8 +86,11 @@ export async function processConversation(
   ];
 
   try {
+    // Use configurable model or fallback to gpt-3.5-turbo (more widely available)
+    const model = process.env.OPENAI_MODEL || "gpt-3.5-turbo";
+
     const completion = await openai.chat.completions.create({
-      model: "gpt-4",
+      model,
       messages,
       temperature: 0.7,
       max_tokens: 200,
@@ -110,8 +122,33 @@ export async function processConversation(
       response: parsedResponse?.response || assistantMessage,
       isComplete: false,
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("OpenAI API error:", error);
+    console.error("Error details:", {
+      message: error?.message,
+      status: error?.status,
+      code: error?.code,
+      type: error?.type,
+    });
+
+    // Check for specific error types
+    if (error?.status === 401) {
+      console.error("OpenAI API key is invalid or missing");
+      throw new Error("OpenAI API authentication failed");
+    }
+    if (error?.status === 429) {
+      console.error("OpenAI API rate limit exceeded");
+      return {
+        response:
+          "I'm experiencing high demand right now. Please try again in a moment.",
+        isComplete: false,
+      };
+    }
+    if (error?.code === "insufficient_quota") {
+      console.error("OpenAI API quota exceeded");
+      throw new Error("OpenAI API quota exceeded");
+    }
+
     return {
       response:
         "I'm sorry, I'm having trouble processing that. Could you please repeat?",

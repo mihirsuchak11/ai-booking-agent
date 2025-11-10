@@ -7,17 +7,20 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test:api": "node test-api.js",
+    "test:openai": "node test-openai.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "axios": "^1.13.2",
+    "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "twilio": "^4.19.0",
-    "openai": "^4.20.1",
     "googleapis": "^126.0.1",
-    "dotenv": "^16.3.1"
+    "openai": "^4.20.1",
+    "twilio": "^4.19.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
