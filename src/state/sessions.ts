@@ -3,7 +3,7 @@ export interface CallSession {
   from: string;
   to: string;
   conversationHistory: Array<{
-    role: 'system' | 'user' | 'assistant';
+    role: "system" | "user" | "assistant";
     content: string;
   }>;
   collectedData: {
@@ -12,8 +12,15 @@ export interface CallSession {
     appointmentTime?: string;
     phoneNumber?: string;
   };
-  status: 'greeting' | 'collecting' | 'checking' | 'confirming' | 'completed' | 'failed';
+  status:
+    | "greeting"
+    | "collecting"
+    | "checking"
+    | "confirming"
+    | "completed"
+    | "failed";
   createdAt: Date;
+  retryCount?: number; // Track retry attempts for unclear speech
 }
 
 class SessionStore {
@@ -27,37 +34,40 @@ class SessionStore {
       to,
       conversationHistory: [],
       collectedData: {},
-      status: 'greeting',
+      status: "greeting",
       createdAt: new Date(),
     };
-    
+
     this.sessions.set(callSid, session);
     return session;
   }
 
   getSession(callSid: string): CallSession | undefined {
     const session = this.sessions.get(callSid);
-    
+
     if (!session) {
       return undefined;
     }
-    
+
     // Check if session expired
     const age = Date.now() - session.createdAt.getTime();
     if (age > this.TTL_MS) {
       this.sessions.delete(callSid);
       return undefined;
     }
-    
+
     return session;
   }
 
-  updateSession(callSid: string, updates: Partial<CallSession>): CallSession | undefined {
+  updateSession(
+    callSid: string,
+    updates: Partial<CallSession>
+  ): CallSession | undefined {
     const session = this.getSession(callSid);
     if (!session) {
       return undefined;
     }
-    
+
     Object.assign(session, updates);
     return session;
   }
@@ -84,4 +94,3 @@ export const sessionStore = new SessionStore();
 setInterval(() => {
   sessionStore.cleanup();
 }, 5 * 60 * 1000);
-

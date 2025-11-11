@@ -14,37 +14,75 @@ const VoiceResponse = twilio.twiml.VoiceResponse;
 
 // Twilio webhook for incoming calls
 router.post("/voice/incoming", async (req: Request, res: Response) => {
-  const { CallSid, From, To } = req.body;
+  const { CallSid, From, To, CallStatus } = req.body;
 
-  console.log(`Incoming call: ${CallSid} from ${From} to ${To}`);
+  console.log(
+    `[INCOMING] Call: ${CallSid} from ${From} to ${To}, Status: ${CallStatus}`
+  );
+
+  // Prevent caching - Twilio should not cache TwiML responses
+  res.set({
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+  });
 
   // Create or get session
   let session = sessionStore.getSession(CallSid);
+  const isNewCall = !session;
+
   if (!session) {
     session = sessionStore.createSession(CallSid, From, To);
+    console.log(`[INCOMING] Created new session for ${CallSid}`);
+  } else {
+    console.log(
+      `[INCOMING] Existing session found for ${CallSid}, conversation history: ${session.conversationHistory.length} messages`
+    );
+
+    // If we already have conversation history, this is NOT a new call
+    // Twilio might be calling this endpoint again - redirect to gather instead
+    if (session.conversationHistory.length > 0) {
+      console.log(
+        `[INCOMING] Session already in progress, redirecting to gather endpoint`
+      );
+      const twiml = new VoiceResponse();
+      twiml.redirect(
+        {
+          method: "POST",
+        },
+        `${config.serviceUrl}/twilio/voice/gather`
+      );
+      res.type("text/xml");
+      res.send(twiml.toString());
+      return;
+    }
   }
 
   const twiml = new VoiceResponse();
 
-  // Greet the caller
-  const greeting = `Hello! Thank you for calling ${config.business.name}. I'm an AI assistant here to help you book an appointment. How can I help you today?`;
-
-  twiml.say({ voice: "alice" }, greeting);
+  // Only greet if this is a truly new call (no conversation history)
+  if (isNewCall && session.conversationHistory.length === 0) {
+    // Natural greeting with business name
+    const greeting = `Hi! Thanks for calling ${config.business.name}. I'm here to help you book an appointment. What can I do for you?`;
+    console.log(`[INCOMING] Sending greeting: "${greeting}"`);
+    twiml.say({ voice: "Polly.Joanna", language: "en-US" }, greeting);
+    twiml.pause({ length: 1 });
+  }
 
   // Gather speech input
   const gather = twiml.gather({
     input: ["speech"],
-    speechTimeout: "auto",
+    speechTimeout: "3",
     action: `${config.serviceUrl}/twilio/voice/gather`,
     method: "POST",
     language: "en-US",
+    hints:
+      "appointment, book, schedule, name, date, time, tomorrow, today, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday",
   });
-
-  gather.say({ voice: "alice" }, "Please tell me what you need.");
 
   // Fallback if no input
   twiml.say(
-    { voice: "alice" },
+    { voice: "Polly.Joanna", language: "en-US" },
     "I didn't catch that. Please call back when you're ready. Goodbye!"
   );
   twiml.hangup();
@@ -57,14 +95,21 @@ router.post("/voice/incoming", async (req: Request, res: Response) => {
 router.post("/voice/gather", async (req: Request, res: Response) => {
   const { CallSid, SpeechResult, From } = req.body;
 
-  console.log(`Speech input for ${CallSid}: ${SpeechResult}`);
-  console.log(`Full request body:`, JSON.stringify(req.body, null, 2));
+  // Prevent caching
+  res.set({
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+  });
+
+  console.log(`[GATHER] Speech input for ${CallSid}: "${SpeechResult}"`);
+  console.log(`[GATHER] Full request body:`, JSON.stringify(req.body, null, 2));
 
   const session = sessionStore.getSession(CallSid);
   if (!session) {
     const twiml = new VoiceResponse();
     twiml.say(
-      { voice: "alice" },
+      { voice: "Polly.Joanna", language: "en-US" },
       "I'm sorry, there was an error. Please call back. Goodbye!"
     );
     twiml.hangup();
@@ -75,24 +120,57 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
 
   const userMessage = SpeechResult || "";
 
-  // Handle empty speech input
+  // Handle empty speech input with better retry logic
   if (!userMessage || userMessage.trim().length === 0) {
     console.log(`Empty speech input for ${CallSid}`);
+    const retryCount = (session.retryCount || 0) + 1;
+    session.retryCount = retryCount;
+    sessionStore.updateSession(CallSid, session);
+
     const twiml = new VoiceResponse();
-    twiml.say(
-      { voice: "alice" },
-      "I didn't catch that. Could you please repeat what you said?"
-    );
+
+    // Different prompts based on retry count
+    if (retryCount === 1) {
+      twiml.say(
+        { voice: "Polly.Joanna", language: "en-US" },
+        "I didn't catch that. Could you please repeat?"
+      );
+    } else if (retryCount === 2) {
+      twiml.say(
+        { voice: "Polly.Joanna", language: "en-US" },
+        "I'm having trouble hearing you. Please speak clearly."
+      );
+    } else {
+      twiml.say(
+        { voice: "Polly.Joanna", language: "en-US" },
+        "I'm having difficulty understanding. Please call back when you're in a quieter location. Goodbye!"
+      );
+      twiml.hangup();
+      res.type("text/xml");
+      res.send(twiml.toString());
+      return;
+    }
+
+    twiml.pause({ length: 1 });
+
     const gather = twiml.gather({
       input: ["speech"],
-      speechTimeout: "auto",
+      speechTimeout: "4",
       action: `${config.serviceUrl}/twilio/voice/gather`,
       method: "POST",
+      language: "en-US",
+      hints: "appointment, book, schedule, name, date, time, tomorrow, today",
     });
-    gather.say({ voice: "alice" }, "Please tell me what you need.");
+
     res.type("text/xml");
     res.send(twiml.toString());
     return;
+  }
+
+  // Reset retry count on successful speech input
+  if (session.retryCount) {
+    session.retryCount = 0;
+    sessionStore.updateSession(CallSid, session);
   }
 
   // Add user message to conversation history
@@ -120,16 +198,19 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
 
     const twiml = new VoiceResponse();
     twiml.say(
-      { voice: "alice" },
+      { voice: "Polly.Joanna", language: "en-US" },
       "I'm sorry, I'm experiencing technical difficulties. Please try again in a moment."
     );
+    twiml.pause({ length: 1 });
+
     const gather = twiml.gather({
       input: ["speech"],
-      speechTimeout: "auto",
+      speechTimeout: "3",
       action: `${config.serviceUrl}/twilio/voice/gather`,
       method: "POST",
+      language: "en-US",
     });
-    gather.say({ voice: "alice" }, "Please continue.");
+
     res.type("text/xml");
     res.send(twiml.toString());
     return;
@@ -141,7 +222,9 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
     content: aiResponse.response,
   });
 
-  console.log(`Sending AI response to Twilio: "${aiResponse.response}"`);
+  console.log(
+    `[GATHER] Sending AI response to Twilio: "${aiResponse.response}"`
+  );
 
   const twiml = new VoiceResponse();
 
@@ -158,19 +241,20 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
 
     if (!dateTime) {
       twiml.say(
-        { voice: "alice" },
+        { voice: "Polly.Joanna", language: "en-US" },
         "I'm sorry, I couldn't understand the date and time. Let me ask again."
       );
+      twiml.pause({ length: 1 });
+
       const gather = twiml.gather({
         input: ["speech"],
-        speechTimeout: "auto",
+        speechTimeout: "4",
         action: `${config.serviceUrl}/twilio/voice/gather`,
         method: "POST",
+        language: "en-US",
+        hints:
+          "tomorrow, today, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday, morning, afternoon, evening, AM, PM",
       });
-      gather.say(
-        { voice: "alice" },
-        "What date and time would you like for your appointment?"
-      );
 
       session.status = "collecting";
       sessionStore.updateSession(CallSid, session);
@@ -192,7 +276,7 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
           ? `I'm sorry, ${availability.reason.toLowerCase()} Please call back to choose another time. Goodbye!`
           : "I'm sorry, that time slot is not available. Please call back to choose another time. Goodbye!";
 
-        twiml.say({ voice: "alice" }, message);
+        twiml.say({ voice: "Polly.Joanna", language: "en-US" }, message);
         twiml.hangup();
 
         session.status = "failed";
@@ -214,7 +298,7 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
       // Confirm booking
       const confirmation = `Great! I've booked your appointment for ${appointmentDate} at ${appointmentTime}. You'll receive a confirmation shortly. Thank you for calling ${config.business.name}!`;
 
-      twiml.say({ voice: "alice" }, confirmation);
+      twiml.say({ voice: "Polly.Joanna", language: "en-US" }, confirmation);
       twiml.hangup();
 
       session.status = "completed";
@@ -232,7 +316,7 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
     } catch (error) {
       console.error("Error booking appointment:", error);
       twiml.say(
-        { voice: "alice" },
+        { voice: "Polly.Joanna", language: "en-US" },
         "I'm sorry, there was an error booking your appointment. Please call back or contact us directly. Goodbye!"
       );
       twiml.hangup();
@@ -245,20 +329,27 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
     session.status = "collecting";
     sessionStore.updateSession(CallSid, session);
 
-    twiml.say({ voice: "alice" }, aiResponse.response);
+    twiml.say(
+      { voice: "Polly.Joanna", language: "en-US" },
+      aiResponse.response
+    );
+
+    // Add a brief pause for natural conversation flow
+    twiml.pause({ length: 1 });
 
     const gather = twiml.gather({
       input: ["speech"],
-      speechTimeout: "auto",
+      speechTimeout: "3",
       action: `${config.serviceUrl}/twilio/voice/gather`,
       method: "POST",
+      language: "en-US",
+      hints:
+        "appointment, book, schedule, name, date, time, tomorrow, today, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday",
     });
-
-    gather.say({ voice: "alice" }, "Please continue.");
 
     // Fallback
     twiml.say(
-      { voice: "alice" },
+      { voice: "Polly.Joanna", language: "en-US" },
       "I didn't catch that. Please call back when you're ready. Goodbye!"
     );
     twiml.hangup();
