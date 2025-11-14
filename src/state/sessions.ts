@@ -12,15 +12,9 @@ export interface CallSession {
     appointmentTime?: string;
     phoneNumber?: string;
   };
-  status:
-    | "greeting"
-    | "collecting"
-    | "checking"
-    | "confirming"
-    | "completed"
-    | "failed";
+  status: "collecting" | "completed" | "failed";
   createdAt: Date;
-  retryCount?: number; // Track retry attempts for unclear speech
+  retryCount?: number;
 }
 
 class SessionStore {
@@ -34,7 +28,7 @@ class SessionStore {
       to,
       conversationHistory: [],
       collectedData: {},
-      status: "greeting",
+      status: "collecting",
       createdAt: new Date(),
     };
 
@@ -49,7 +43,6 @@ class SessionStore {
       return undefined;
     }
 
-    // Check if session expired
     const age = Date.now() - session.createdAt.getTime();
     if (age > this.TTL_MS) {
       this.sessions.delete(callSid);
@@ -87,10 +80,8 @@ class SessionStore {
   }
 }
 
-// Singleton instance
 export const sessionStore = new SessionStore();
 
-// Cleanup expired sessions every 5 minutes
 setInterval(() => {
   sessionStore.cleanup();
 }, 5 * 60 * 1000);
