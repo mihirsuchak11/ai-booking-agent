@@ -35,6 +35,12 @@ export const config = {
 
   // Testing mode - bypasses Google Calendar integration
   testMode: process.env.TEST_MODE === "true",
+
+  // Supabase (optional - will use DB if provided)
+  supabase: {
+    url: process.env.SUPABASE_URL,
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  },
 };
 
 // Validate required environment variables

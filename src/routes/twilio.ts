@@ -3,11 +3,13 @@ import twilio from "twilio";
 import { config } from "../config/env";
 import { sessionStore, CallSession } from "../state/sessions";
 import { processConversation } from "../services/openai";
+import { parseDateTime } from "../services/calendar";
 import {
-  checkAvailability,
-  createAppointment,
-  parseDateTime,
-} from "../services/calendar";
+  resolveBusinessByPhoneNumber,
+  loadBusinessConfig,
+} from "../db/business";
+import { createCallSession, updateCallSession } from "../db/sessions";
+import { checkDbAvailability, createDbBooking } from "../db/bookings";
 
 const router = express.Router();
 const VoiceResponse = twilio.twiml.VoiceResponse;
@@ -24,11 +26,36 @@ router.post("/voice/incoming", async (req: Request, res: Response) => {
     Expires: "0",
   });
 
-  // Create session if new call
+  // Resolve business from phone number
+  const businessId = await resolveBusinessByPhoneNumber(To);
+  if (!businessId) {
+    console.error(`[INCOMING] No business found for phone number: ${To}`);
+    const twiml = new VoiceResponse();
+    twiml.say(
+      { voice: "Polly.Joanna", language: "en-US" },
+      "I'm sorry, this number is not configured. Please contact support."
+    );
+    twiml.hangup();
+    res.type("text/xml");
+    res.send(twiml.toString());
+    return;
+  }
+
+  // Create in-memory session
   let session = sessionStore.getSession(CallSid);
   if (!session) {
     session = sessionStore.createSession(CallSid, From, To);
-    console.log(`[INCOMING] Created new session for ${CallSid}`);
+    session.businessId = businessId;
+    console.log(
+      `[INCOMING] Created new session for ${CallSid}, business: ${businessId}`
+    );
+  }
+
+  // Create DB call session
+  const dbSessionId = await createCallSession(businessId, CallSid, From, To);
+  if (dbSessionId) {
+    session.dbSessionId = dbSessionId;
+    sessionStore.updateSession(CallSid, session);
   }
 
   // Redirect to gather - AI will handle greeting
@@ -69,8 +96,14 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
     session.retryCount = retryCount;
     sessionStore.updateSession(CallSid, session);
 
+    // Load business config for AI
+    let businessConfig = null;
+    if (session.businessId) {
+      businessConfig = await loadBusinessConfig(session.businessId);
+    }
+
     // Let AI generate retry message
-    const aiResponse = await processConversation("", session);
+    const aiResponse = await processConversation("", session, businessConfig);
     const twiml = new VoiceResponse();
     twiml.say(
       { voice: "Polly.Joanna", language: "en-US" },
@@ -104,11 +137,22 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
   // Add user message to history
   session.conversationHistory.push({ role: "user", content: userMessage });
 
+  // Load business config if not already loaded
+  let businessConfig = null;
+  if (session.businessId) {
+    const configData = await loadBusinessConfig(session.businessId);
+    businessConfig = configData;
+  }
+
   // Process with OpenAI
   let aiResponse;
   try {
     console.log(`[GATHER] Processing: "${userMessage}"`);
-    aiResponse = await processConversation(userMessage, session);
+    aiResponse = await processConversation(
+      userMessage,
+      session,
+      businessConfig
+    );
   } catch (error: any) {
     console.error(`[GATHER] Error:`, error?.message);
     const twiml = new VoiceResponse();
@@ -135,43 +179,75 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
     const { customerName, appointmentDate, appointmentTime } =
       aiResponse.extractedData;
 
+    if (!session.businessId) {
+      console.error(`[GATHER] No businessId for call ${CallSid}`);
+      twiml.say(
+        { voice: "Polly.Joanna", language: "en-US" },
+        "I'm sorry, there was an error. Please call back later."
+      );
+      twiml.hangup();
+      res.type("text/xml");
+      res.send(twiml.toString());
+      return;
+    }
+
     const dateTime = parseDateTime(appointmentDate, appointmentTime);
 
     if (dateTime) {
       try {
-        const availability = await checkAvailability(
+        // Load business config for availability check
+        const configData =
+          businessConfig || (await loadBusinessConfig(session.businessId));
+        const availability = await checkDbAvailability(
+          session.businessId,
           dateTime.start,
-          dateTime.end
+          dateTime.end,
+          configData?.config || null
         );
 
         if (availability.available) {
-          await createAppointment(
+          const bookingId = await createDbBooking(
+            session.businessId,
+            session.dbSessionId || null,
             customerName,
             From,
             dateTime.start,
             dateTime.end
           );
 
-          session.collectedData = {
-            customerName,
-            appointmentDate,
-            appointmentTime,
-            phoneNumber: From,
-          };
-          session.status = "completed";
-          sessionStore.updateSession(CallSid, session);
+          if (bookingId) {
+            session.collectedData = {
+              customerName,
+              appointmentDate,
+              appointmentTime,
+              phoneNumber: From,
+            };
+            session.status = "completed";
+            sessionStore.updateSession(CallSid, session);
 
-          // Speak AI's final confirmation message
-          twiml.say(
-            { voice: "Polly.Joanna", language: "en-US" },
-            aiResponse.response
-          );
-          twiml.hangup();
+            // Update DB call session
+            if (session.dbSessionId) {
+              await updateCallSession(CallSid, {
+                status: "completed",
+                ended_at: new Date().toISOString(),
+                summary: `Booked appointment for ${customerName} on ${appointmentDate} at ${appointmentTime}`,
+              });
+            }
+
+            // Speak AI's final confirmation message
+            twiml.say(
+              { voice: "Polly.Joanna", language: "en-US" },
+              aiResponse.response
+            );
+            twiml.hangup();
+          } else {
+            throw new Error("Failed to create booking in database");
+          }
         } else {
           // Not available - let AI handle this
           twiml.say(
             { voice: "Polly.Joanna", language: "en-US" },
-            aiResponse.response
+            availability.reason || aiResponse.response
           );
           twiml.pause({ length: 1 });
           twiml.gather({
@@ -229,7 +305,7 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
 });
 
 // Twilio webhook for call status updates
-router.post("/voice/status", (req: Request, res: Response) => {
+router.post("/voice/status", async (req: Request, res: Response) => {
   const { CallSid, CallStatus } = req.body;
   console.log(`[STATUS] ${CallSid} - ${CallStatus}`);
 
@@ -239,6 +315,12 @@ router.post("/voice/status", (req: Request, res: Response) => {
     CallStatus === "busy" ||
     CallStatus === "no-answer"
   ) {
+    // Update DB call session if exists
+    await updateCallSession(CallSid, {
+      status: CallStatus === "completed" ? "completed" : "failed",
+      ended_at: new Date().toISOString(),
+    });
+
     setTimeout(() => {
       sessionStore.deleteSession(CallSid);
     }, 60000);

@@ -2,6 +2,8 @@ export interface CallSession {
   callSid: string;
   from: string;
   to: string;
+  businessId?: string; // Resolved from phone number
+  dbSessionId?: string; // ID from call_sessions table
   conversationHistory: Array<{
     role: "system" | "user" | "assistant";
     content: string;
