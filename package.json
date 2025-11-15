@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "type-check": "tsc --noEmit",
     "test:api": "node test-api.js",
-    "test:openai": "node test-openai.js"
+    "test:openai": "node test-openai.js",
+    "test:booking": "node test-booking-flow.js"
   },
   "keywords": [],
   "author": "",

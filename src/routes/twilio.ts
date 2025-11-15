@@ -172,10 +172,22 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
     content: aiResponse.response,
   });
 
+  console.log(`[GATHER] AI Response - isComplete: ${aiResponse.isComplete}`);
+  console.log(
+    `[GATHER] AI Response - has extractedData: ${!!aiResponse.extractedData}`
+  );
+  if (aiResponse.extractedData) {
+    console.log(
+      `[GATHER] Extracted data:`,
+      JSON.stringify(aiResponse.extractedData)
+    );
+  }
+
   const twiml = new VoiceResponse();
 
   // If AI says conversation is complete, book appointment and hangup
   if (aiResponse.isComplete && aiResponse.extractedData) {
+    console.log(`[GATHER] 🎯 Attempting to book appointment...`);
     const { customerName, appointmentDate, appointmentTime } =
       aiResponse.extractedData;
 
@@ -192,20 +204,32 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
     }
 
     const dateTime = parseDateTime(appointmentDate, appointmentTime);
+    console.log(
+      `[GATHER] Parsed dateTime:`,
+      dateTime
+        ? `start=${dateTime.start.toISOString()}, end=${dateTime.end.toISOString()}`
+        : "null"
+    );
 
     if (dateTime) {
       try {
         // Load business config for availability check
         const configData =
           businessConfig || (await loadBusinessConfig(session.businessId));
+        console.log(`[GATHER] Checking availability...`);
         const availability = await checkDbAvailability(
           session.businessId,
           dateTime.start,
           dateTime.end,
           configData?.config || null
         );
+        console.log(
+          `[GATHER] Availability result:`,
+          JSON.stringify(availability)
+        );
 
         if (availability.available) {
+          console.log(`[GATHER] ✅ Slot available, creating booking...`);
           const bookingId = await createDbBooking(
             session.businessId,
             session.dbSessionId || null,
@@ -214,6 +238,7 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
             dateTime.start,
             dateTime.end
           );
+          console.log(`[GATHER] Booking created with ID: ${bookingId}`);
 
           if (bookingId) {
             session.collectedData = {
@@ -244,6 +269,7 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
             throw new Error("Failed to create booking in database");
           }
         } else {
+          console.log(`[GATHER] ❌ Slot NOT available: ${availability.reason}`);
           // Not available - let AI handle this
           twiml.say(
             { voice: "Polly.Joanna", language: "en-US" },
@@ -259,7 +285,7 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
           });
         }
       } catch (error) {
-        console.error("Error booking:", error);
+        console.error(`[GATHER] ❌ Error booking:`, error);
         twiml.say(
           { voice: "Polly.Joanna", language: "en-US" },
           "I'm sorry, there was an error. Please call back later."
@@ -267,6 +293,9 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
         twiml.hangup();
       }
     } else {
+      console.log(
+        `[GATHER] ⚠️  Invalid date/time parsed, continuing conversation`
+      );
       // Invalid date/time - continue conversation
       twiml.say(
         { voice: "Polly.Joanna", language: "en-US" },
@@ -282,6 +311,7 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
       });
     }
   } else {
+    console.log(`[GATHER] ⏳ Continuing conversation (not complete yet)`);
     // Continue conversation
     session.status = "collecting";
     sessionStore.updateSession(CallSid, session);

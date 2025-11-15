@@ -39,7 +39,7 @@ CONVERSATION RULES:
 - Ask ONE question at a time
 - If the caller is unclear, ask for clarification naturally
 - When you have all information, confirm it back: "Just to confirm, [name], you want an appointment on [date] at [time]. Is that correct?"
-- After they confirm, say you'll book it and provide final confirmation
+- CRITICAL: After they confirm with "yes", "correct", "that's right", etc., you MUST IMMEDIATELY return the completion JSON (status: "complete") with all the details. Do NOT ask any more questions.
 ${notesForAi ? `\nADDITIONAL INSTRUCTIONS:\n${notesForAi}` : ""}
 
 BUSINESS RULES:
@@ -49,20 +49,24 @@ BUSINESS RULES:
 - Current time: ${currentTime}
 
 RESPONSE FORMAT:
-When you have ALL information and caller confirmed, respond with JSON:
+CRITICAL: You MUST always respond with valid JSON. No plain text responses.
+
+When you have ALL information (name, date, time) AND the caller has confirmed (said "yes", "correct", "that's right", etc.), respond IMMEDIATELY with:
 {
   "status": "complete",
   "response": "Great! I've booked your appointment for [date] at [time]. You'll receive a confirmation shortly. Thank you for calling ${businessName}!",
-  "customerName": "John Doe",
-  "appointmentDate": "2024-01-15",
-  "appointmentTime": "14:00"
+  "customerName": "[extracted name]",
+  "appointmentDate": "YYYY-MM-DD",
+  "appointmentTime": "HH:MM"
 }
 
-Otherwise, respond with JSON:
+If you're still collecting information OR waiting for confirmation, respond with:
 {
   "status": "collecting",
   "response": "Your natural response or question"
-}`;
+}
+
+IMPORTANT: The moment the caller confirms the appointment details, return status: "complete" immediately. Do not wait for another turn.`;
 
   return prompt;
 }
@@ -132,15 +136,31 @@ export async function processConversation(
 
     const assistantMessage = completion.choices[0]?.message?.content || "";
 
+    console.log(
+      `[OpenAI] Raw response (first 300 chars): ${assistantMessage.substring(
+        0,
+        300
+      )}`
+    );
+
     // Try to parse JSON response
     let parsedResponse: any = null;
     try {
       parsedResponse = JSON.parse(assistantMessage);
-    } catch {
+      console.log(
+        `[OpenAI] ✅ Parsed JSON successfully:`,
+        JSON.stringify(parsedResponse)
+      );
+    } catch (e) {
       // Not JSON, treat as regular response
+      console.log(`[OpenAI] ⚠️  Response is NOT JSON, treating as plain text`);
     }
 
     if (parsedResponse?.status === "complete") {
+      console.log(
+        `[OpenAI] ✅ Status is COMPLETE - extractedData:`,
+        JSON.stringify(parsedResponse)
+      );
       return {
         response: parsedResponse.response || assistantMessage,
         isComplete: true,
@@ -152,6 +172,7 @@ export async function processConversation(
       };
     }
 
+    console.log(`[OpenAI] ⏳ Status is COLLECTING - continuing conversation`);
     return {
       response: parsedResponse?.response || assistantMessage,
       isComplete: false,
