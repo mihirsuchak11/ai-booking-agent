@@ -22,6 +22,11 @@ router.post("/voice/incoming", async (req: Request, res: Response) => {
 
   console.log(`[INCOMING] Call: ${CallSid} from ${From} to ${To}`);
   console.log(`[INCOMING] Streaming mode: ${config.streamingMode}`);
+  console.log(
+    `[INCOMING] Environment: ${
+      process.env.VERCEL === "1" ? "Vercel (serverless)" : "Local/Other"
+    }`
+  );
 
   res.set({
     "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -49,18 +54,18 @@ router.post("/voice/incoming", async (req: Request, res: Response) => {
   // Use streaming mode for human-like voice experience
   if (config.streamingMode) {
     console.log(`[INCOMING] 🎙️ Using Media Streams for real-time voice`);
-    
+
     // Connect to Media Streams WebSocket
     const connect = twiml.connect();
     const mediaStreamUrl = getMediaStreamUrl(config.serviceUrl);
-    
+
     console.log(`[INCOMING] Media Stream URL: ${mediaStreamUrl}`);
-    
+
     // Create stream with all parameters
     const stream = connect.stream({
       url: mediaStreamUrl,
     });
-    
+
     // Pass custom parameters to the WebSocket handler
     stream.parameter({ name: "from", value: From });
     stream.parameter({ name: "to", value: To });
@@ -123,27 +128,36 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
 
   const userMessage = SpeechResult || "";
 
-  // Handle empty speech - let AI handle retry prompts
+  // Load business config for AI
+  let businessConfig = null;
+  if (session.businessId) {
+    businessConfig = await loadBusinessConfig(session.businessId);
+  }
+
+  // Handle empty speech - check if this is first call (greeting) or retry
   if (!userMessage || userMessage.trim().length === 0) {
-    const retryCount = (session.retryCount || 0) + 1;
-    session.retryCount = retryCount;
-    sessionStore.updateSession(CallSid, session);
+    const isFirstCall = session.conversationHistory.length === 0;
 
-    // Load business config for AI
-    let businessConfig = null;
-    if (session.businessId) {
-      businessConfig = await loadBusinessConfig(session.businessId);
-    }
+    if (isFirstCall) {
+      // This is the first call - send greeting
+      console.log(`[GATHER] First call - sending greeting`);
+      const aiResponse = await processConversation("", session, businessConfig);
+      const twiml = new VoiceResponse();
+      twiml.say(
+        { voice: "Polly.Joanna", language: "en-US" },
+        aiResponse.response ||
+          "Hello! Thank you for calling. How can I help you today?"
+      );
 
-    // Let AI generate retry message
-    const aiResponse = await processConversation("", session, businessConfig);
-    const twiml = new VoiceResponse();
-    twiml.say(
-      { voice: "Polly.Joanna", language: "en-US" },
-      aiResponse.response || "I didn't catch that. Could you repeat?"
-    );
+      // Add greeting to history
+      session.conversationHistory.push({
+        role: "assistant",
+        content:
+          aiResponse.response ||
+          "Hello! Thank you for calling. How can I help you today?",
+      });
+      sessionStore.updateSession(CallSid, session);
 
-    if (retryCount < 3) {
       twiml.pause({ length: 1 });
       twiml.gather({
         input: ["speech"],
@@ -152,13 +166,41 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
         method: "POST",
         language: "en-US",
       });
-    } else {
-      twiml.hangup();
-    }
 
-    res.type("text/xml");
-    res.send(twiml.toString());
-    return;
+      res.type("text/xml");
+      res.send(twiml.toString());
+      return;
+    } else {
+      // This is a retry - user didn't speak
+      const retryCount = (session.retryCount || 0) + 1;
+      session.retryCount = retryCount;
+      sessionStore.updateSession(CallSid, session);
+
+      // Let AI generate retry message
+      const aiResponse = await processConversation("", session, businessConfig);
+      const twiml = new VoiceResponse();
+      twiml.say(
+        { voice: "Polly.Joanna", language: "en-US" },
+        aiResponse.response || "I didn't catch that. Could you repeat?"
+      );
+
+      if (retryCount < 3) {
+        twiml.pause({ length: 1 });
+        twiml.gather({
+          input: ["speech"],
+          speechTimeout: "3",
+          action: `${config.serviceUrl}/twilio/voice/gather`,
+          method: "POST",
+          language: "en-US",
+        });
+      } else {
+        twiml.hangup();
+      }
+
+      res.type("text/xml");
+      res.send(twiml.toString());
+      return;
+    }
   }
 
   // Reset retry count
@@ -170,14 +212,7 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
   // Add user message to history
   session.conversationHistory.push({ role: "user", content: userMessage });
 
-  // Load business config if not already loaded
-  let businessConfig = null;
-  if (session.businessId) {
-    const configData = await loadBusinessConfig(session.businessId);
-    businessConfig = configData;
-  }
-
-  // Process with OpenAI
+  // Process with OpenAI (businessConfig already loaded above)
   let aiResponse;
   try {
     console.log(`[GATHER] Processing: "${userMessage}"`);

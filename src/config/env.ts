@@ -46,7 +46,10 @@ export const config = {
   testMode: process.env.TEST_MODE === "true",
 
   // Streaming mode - use Media Streams for real-time voice
-  streamingMode: process.env.STREAMING_MODE !== "false", // Default to true
+  // Note: Disabled on Vercel because serverless functions don't support WebSockets
+  streamingMode: process.env.VERCEL === "1" 
+    ? false 
+    : process.env.STREAMING_MODE !== "false", // Default to true (unless on Vercel)
 
   // Supabase (optional - will use DB if provided)
   supabase: {

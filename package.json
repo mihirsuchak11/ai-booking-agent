@@ -11,7 +11,9 @@
     "test:api": "node test-api.js",
     "test:openai": "node test-openai.js",
     "test:booking": "node test-booking-flow.js",
-    "test:deepgram": "tsx test-deepgram.ts"
+    "test:deepgram": "tsx test-deepgram.ts",
+    "test:voice": "node test-voice-flow.js",
+    "test:voice:quick": "node test-voice-flow.js quick"
   },
   "keywords": [],
   "author": "",
