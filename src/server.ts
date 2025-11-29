@@ -19,6 +19,10 @@ app.get("/health", (req, res) => {
   });
 });
 
+// Audio routes (Deepgram TTS)
+import audioRoutes from "./routes/audio";
+app.use("/audio", audioRoutes);
+
 // Twilio webhook routes
 app.use("/twilio", twilioRoutes);
 

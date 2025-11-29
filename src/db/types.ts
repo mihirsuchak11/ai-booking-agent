@@ -21,6 +21,8 @@ export interface BusinessConfig {
   min_notice_hours: number;
   notes_for_ai: string | null;
   openai_model: string | null;
+  anthropic_model: string | null;
+  llm_provider: "openai" | "anthropic" | null;
   created_at: string;
   updated_at: string;
 }
@@ -35,6 +37,9 @@ export interface Integration {
   google_calendar_id: string | null;
   openai_api_key: string | null;
   openai_model: string | null;
+  anthropic_api_key: string | null;
+  anthropic_model: string | null;
+  llm_provider: "openai" | "anthropic" | null;
   created_at: string;
   updated_at: string;
 }

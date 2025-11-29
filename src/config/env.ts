@@ -17,6 +17,15 @@ export const config = {
     model: process.env.OPENAI_MODEL || "gpt-4o",
   },
 
+  // Anthropic Claude configuration
+  anthropic: {
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    model: process.env.ANTHROPIC_MODEL || "claude-3-5-haiku-20241022",
+  },
+
+  // LLM Provider selection: "openai" or "anthropic"
+  llmProvider: (process.env.LLM_PROVIDER || "openai") as "openai" | "anthropic",
+
   // Deepgram configuration (STT + TTS)
   deepgram: {
     apiKey: process.env.DEEPGRAM_API_KEY!,
@@ -47,9 +56,8 @@ export const config = {
 
   // Streaming mode - use Media Streams for real-time voice
   // Note: Disabled on Vercel because serverless functions don't support WebSockets
-  streamingMode: process.env.VERCEL === "1" 
-    ? false 
-    : process.env.STREAMING_MODE !== "false", // Default to true (unless on Vercel)
+  streamingMode:
+    process.env.VERCEL === "1" ? false : process.env.STREAMING_MODE !== "false", // Default to true (unless on Vercel)
 
   // Supabase (optional - will use DB if provided)
   supabase: {
@@ -63,8 +71,17 @@ const requiredVars = [
   "TWILIO_ACCOUNT_SID",
   "TWILIO_AUTH_TOKEN",
   "TWILIO_PHONE_NUMBER",
-  "OPENAI_API_KEY",
 ];
+
+// Add LLM provider API key based on selected provider
+if (config.llmProvider === "anthropic") {
+  if (!config.anthropic.apiKey) {
+    requiredVars.push("ANTHROPIC_API_KEY");
+  }
+} else {
+  // Default to OpenAI
+  requiredVars.push("OPENAI_API_KEY");
+}
 
 // Google Calendar vars only required if not in test mode
 if (!config.testMode) {

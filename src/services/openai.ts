@@ -2,6 +2,10 @@ import OpenAI from "openai";
 import { config } from "../config/env";
 import { CallSession } from "../state/sessions";
 import { BusinessConfigWithDetails } from "../db/types";
+import {
+  processConversationAnthropic,
+  processConversationAnthropicStreaming,
+} from "./anthropic";
 
 // Simplified session interface for streaming sessions
 export interface StreamingSessionData {
@@ -50,50 +54,89 @@ function buildSystemPrompt(
     minute: "2-digit",
   });
 
-  let prompt = `You are an AI assistant helping to book appointments over a phone call for ${businessName}.
+  let prompt = `#Role
+You are a warm, friendly receptionist for ${businessName}, speaking to callers over the phone. Your task is to help them book appointments naturally and efficiently.
 
-Your responsibilities:
-1. Greet the caller warmly when the call starts${
-    greeting ? `\n   - Use this greeting: "${greeting}"` : ""
-  }
-2. Collect: customer name, appointment date, and appointment time
-3. Confirm the details back to the caller before booking
-4. Provide a final confirmation message after booking
+#General Guidelines
+- Be warm, friendly, and professional
+- Speak clearly and naturally in plain language
+- Keep most responses to 1-2 sentences and under 120 characters unless the caller asks for more detail (max: 300 characters)
+- Do not use markdown formatting, like code blocks, quotes, bold, links, or italics
+- Use varied phrasing; avoid repetition
+- If unclear, ask for clarification
+- If the user's message is empty, respond with an empty message
+- If asked about your well-being, respond briefly and kindly
 
-CONVERSATION RULES:
-- Be natural, friendly, and conversational
-- Keep responses brief (1-2 sentences max)
-- Ask ONE question at a time
-- If the caller is unclear, ask for clarification naturally
-- When you have all information, confirm it back: "Just to confirm, [name], you want an appointment on [date] at [time]. Is that correct?"
-- CRITICAL: After they confirm with "yes", "correct", "that's right", etc., you MUST IMMEDIATELY return the completion JSON (status: "complete") with all the details. Do NOT ask any more questions.
-${notesForAi ? `\nADDITIONAL INSTRUCTIONS:\n${notesForAi}` : ""}
+#Voice-Specific Instructions
+- Speak in a conversational tone—your responses will be spoken aloud
+- Pause after questions to allow for replies
+- Confirm what the customer said if uncertain: "Just to confirm, did you say [what you heard]?"
+- Never interrupt
+- Use active listening cues: "Got it", "Sure thing", "Absolutely"
+- Use contractions: "I'll", "you're", "that's", "we've"
 
-BUSINESS RULES:
-- Minimum notice: ${minNoticeHours} hours
+#Style
+- Use active listening cues
+- Be warm and understanding, but concise
+- Use simple words unless the caller uses technical terms
+- Match the caller's energy—if they're in a hurry, be efficient; if they're chatty, be warm
+- Use the caller's name once you learn it
+
+#Call Flow Objective
+${
+  greeting
+    ? `- Greet with: "${greeting}"`
+    : `- Greet warmly: "Hi there! Thanks for calling ${businessName}. How can I help you today?"`
+}
+
+- Collect the following information naturally:
+  1. Customer name
+  2. Preferred appointment date
+  3. Preferred appointment time
+
+- When you have all information, confirm it back naturally:
+  "So just to make sure I have this right, [name], you'd like to come in on [date] at [time]?"
+
+- After they confirm with "yes", "correct", "that's right", etc., complete the booking immediately
+
+#Handling Confusion
+- If you don't understand, say something like "I want to make sure I get this right—did you say [what you heard]?"
+- Never just say "I didn't catch that"—always give context
+- If they seem frustrated: "I totally understand, let me help sort this out"
+- If they seem uncertain: "No worries, we can figure out the best time together"
+
+#Emotional Awareness
+- If caller sounds rushed: be efficient, skip small talk
+- If caller sounds uncertain: be reassuring
+- If caller confirms: sound genuinely pleased: "Wonderful! You're all set"
+
+${notesForAi ? `\n#Additional Instructions\n${notesForAi}` : ""}
+
+#Business Rules
+- Minimum notice required: ${minNoticeHours} hours
 - Timezone: ${timezone}
 - Current date: ${currentDate}
 - Current time: ${currentTime}
 
-RESPONSE FORMAT:
+#Response Format
 CRITICAL: You MUST always respond with valid JSON. No plain text responses.
 
-When you have ALL information (name, date, time) AND the caller has confirmed (said "yes", "correct", "that's right", etc.), respond IMMEDIATELY with:
+When you have ALL information (name, date, time) AND the caller has confirmed, respond IMMEDIATELY with:
 {
   "status": "complete",
-  "response": "Great! I've booked your appointment for [date] at [time]. You'll receive a confirmation shortly. Thank you for calling ${businessName}!",
+  "response": "Perfect! I've got you down for [date] at [time]. We'll see you then, [name]! Have a great day!",
   "customerName": "[extracted name]",
   "appointmentDate": "YYYY-MM-DD",
   "appointmentTime": "HH:MM"
 }
 
-If you're still collecting information OR waiting for confirmation, respond with:
+If you're still collecting information OR waiting for confirmation:
 {
   "status": "collecting",
-  "response": "Your natural response or question"
+  "response": "Your natural, conversational response"
 }
 
-IMPORTANT: The moment the caller confirms the appointment details, return status: "complete" immediately. Do not wait for another turn.`;
+IMPORTANT: The moment the caller confirms the appointment details, return status: "complete" immediately.`;
 
   return prompt;
 }
@@ -138,7 +181,11 @@ VOICE BEHAVIOR:
 - Add brief acknowledgments: "Got it", "Sure thing", "Absolutely"
 
 CONVERSATION FLOW:
-1. ${greeting ? `Greet with: "${greeting}"` : `Greet warmly: "Hi there! Thanks for calling ${businessName}. How can I help you today?"`}
+1. ${
+    greeting
+      ? `Greet with: "${greeting}"`
+      : `Greet warmly: "Hi there! Thanks for calling ${businessName}. How can I help you today?"`
+  }
 2. Collect: name, preferred date/time for appointment
 3. Confirm details naturally: "So just to make sure I have this right, [name], you'd like to come in on [date] at [time]?"
 4. After confirmation, complete the booking
@@ -203,6 +250,19 @@ export async function processConversation(
   session: CallSession,
   businessConfig: BusinessConfigWithDetails | null = null
 ): Promise<{ response: string; isComplete: boolean; extractedData?: any }> {
+  // Route to correct provider based on config
+  const provider =
+    businessConfig?.integration?.llm_provider ||
+    businessConfig?.config?.llm_provider ||
+    config.llmProvider;
+
+  console.log(`[LLM] Using provider: ${provider}`);
+
+  if (provider === "anthropic") {
+    return processConversationAnthropic(userMessage, session, businessConfig);
+  }
+
+  // Default to OpenAI
   const openai = getOpenAIClient(businessConfig);
   const systemPrompt = buildSystemPrompt(businessConfig);
 
@@ -226,7 +286,8 @@ export async function processConversation(
       businessConfig?.integration?.openai_model ||
       businessConfig?.config?.openai_model ||
       process.env.OPENAI_MODEL ||
-      "gpt-3.5-turbo";
+      config.openai.model ||
+      "gpt-4o";
     console.log(`[OpenAI] Using model: ${model}`);
 
     const timeoutMs = 10000;
@@ -324,11 +385,32 @@ export async function processConversationStreaming(
   session: StreamingSessionData,
   businessConfig: BusinessConfigWithDetails | null = null
 ): Promise<StreamingResponse> {
+  // Route to correct provider based on config
+  const provider =
+    businessConfig?.integration?.llm_provider ||
+    businessConfig?.config?.llm_provider ||
+    config.llmProvider;
+
+  console.log(`[LLM Streaming] Using provider: ${provider}`);
+
+  if (provider === "anthropic") {
+    return processConversationAnthropicStreaming(
+      userMessage,
+      session,
+      businessConfig
+    );
+  }
+
+  // Default to OpenAI
   const openai = getOpenAIClient(businessConfig);
   const systemPrompt = buildHumanLikeSystemPrompt(businessConfig);
 
-  console.log(`[OpenAI Streaming] Processing: "${userMessage.substring(0, 50)}..."`);
-  console.log(`[OpenAI Streaming] History length: ${session.conversationHistory.length}`);
+  console.log(
+    `[OpenAI Streaming] Processing: "${userMessage.substring(0, 50)}..."`
+  );
+  console.log(
+    `[OpenAI Streaming] History length: ${session.conversationHistory.length}`
+  );
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
@@ -365,7 +447,9 @@ export async function processConversationStreaming(
       fullResponse += content;
     }
 
-    console.log(`[OpenAI Streaming] Full response: ${fullResponse.substring(0, 300)}`);
+    console.log(
+      `[OpenAI Streaming] Full response: ${fullResponse.substring(0, 300)}`
+    );
 
     // Parse the JSON response
     let parsedResponse: any = null;
@@ -373,7 +457,9 @@ export async function processConversationStreaming(
       parsedResponse = JSON.parse(fullResponse);
       console.log(`[OpenAI Streaming] ✅ Parsed JSON successfully`);
     } catch (e) {
-      console.log(`[OpenAI Streaming] ⚠️ Response is NOT JSON, treating as plain text`);
+      console.log(
+        `[OpenAI Streaming] ⚠️ Response is NOT JSON, treating as plain text`
+      );
     }
 
     if (parsedResponse?.status === "complete") {
@@ -408,7 +494,8 @@ export async function processConversationStreaming(
     }
 
     return {
-      response: "I'm sorry, I didn't quite catch that. Could you say that again?",
+      response:
+        "I'm sorry, I didn't quite catch that. Could you say that again?",
       isComplete: false,
     };
   }
@@ -498,7 +585,8 @@ export async function processConversationWithChunks(
   } catch (error: any) {
     console.error("[OpenAI Chunks] Error:", error?.message);
     return {
-      response: "I'm sorry, I didn't quite catch that. Could you say that again?",
+      response:
+        "I'm sorry, I didn't quite catch that. Could you say that again?",
       isComplete: false,
     };
   }

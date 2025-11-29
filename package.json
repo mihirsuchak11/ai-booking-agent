@@ -19,6 +19,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.0",
     "@deepgram/sdk": "^3.13.0",
     "@supabase/supabase-js": "^2.81.1",
     "@types/ws": "^8.18.1",

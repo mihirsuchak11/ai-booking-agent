@@ -16,6 +16,29 @@ import { getMediaStreamUrl } from "./media-stream";
 const router = express.Router();
 const VoiceResponse = twilio.twiml.VoiceResponse;
 
+/**
+ * Generate Deepgram TTS audio URL for Twilio to play
+ */
+function getDeepgramAudioUrl(text: string, voice?: string): string {
+  const params = new URLSearchParams({ text });
+  if (voice) {
+    params.append("voice", voice);
+  }
+  return `${config.serviceUrl}/audio/tts?${params.toString()}`;
+}
+
+/**
+ * Play text using Deepgram TTS (replaces twiml.say)
+ */
+function playDeepgramTTS(
+  twiml: twilio.twiml.VoiceResponse,
+  text: string,
+  voice?: string
+): void {
+  const audioUrl = getDeepgramAudioUrl(text, voice);
+  twiml.play(audioUrl);
+}
+
 // Twilio webhook for incoming calls
 router.post("/voice/incoming", async (req: Request, res: Response) => {
   const { CallSid, From, To } = req.body;
@@ -39,8 +62,8 @@ router.post("/voice/incoming", async (req: Request, res: Response) => {
   if (!businessId) {
     console.error(`[INCOMING] No business found for phone number: ${To}`);
     const twiml = new VoiceResponse();
-    twiml.say(
-      { voice: "Polly.Joanna", language: "en-US" },
+    playDeepgramTTS(
+      twiml,
       "I'm sorry, this number is not configured. Please contact support."
     );
     twiml.hangup();
@@ -143,8 +166,8 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
       console.log(`[GATHER] First call - sending greeting`);
       const aiResponse = await processConversation("", session, businessConfig);
       const twiml = new VoiceResponse();
-      twiml.say(
-        { voice: "Polly.Joanna", language: "en-US" },
+      playDeepgramTTS(
+        twiml,
         aiResponse.response ||
           "Hello! Thank you for calling. How can I help you today?"
       );
@@ -179,8 +202,8 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
       // Let AI generate retry message
       const aiResponse = await processConversation("", session, businessConfig);
       const twiml = new VoiceResponse();
-      twiml.say(
-        { voice: "Polly.Joanna", language: "en-US" },
+      playDeepgramTTS(
+        twiml,
         aiResponse.response || "I didn't catch that. Could you repeat?"
       );
 
@@ -224,8 +247,8 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error(`[GATHER] Error:`, error?.message);
     const twiml = new VoiceResponse();
-    twiml.say(
-      { voice: "Polly.Joanna", language: "en-US" },
+    playDeepgramTTS(
+      twiml,
       "I'm experiencing technical difficulties. Please call back later."
     );
     twiml.hangup();
@@ -261,8 +284,8 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
 
     if (!session.businessId) {
       console.error(`[GATHER] No businessId for call ${CallSid}`);
-      twiml.say(
-        { voice: "Polly.Joanna", language: "en-US" },
+      playDeepgramTTS(
+        twiml,
         "I'm sorry, there was an error. Please call back later."
       );
       twiml.hangup();
@@ -327,11 +350,8 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
               });
             }
 
-            // Speak AI's final confirmation message
-            twiml.say(
-              { voice: "Polly.Joanna", language: "en-US" },
-              aiResponse.response
-            );
+            // Speak AI's final confirmation message using Deepgram TTS
+            playDeepgramTTS(twiml, aiResponse.response);
             twiml.hangup();
           } else {
             throw new Error("Failed to create booking in database");
@@ -339,10 +359,7 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
         } else {
           console.log(`[GATHER] ❌ Slot NOT available: ${availability.reason}`);
           // Not available - let AI handle this
-          twiml.say(
-            { voice: "Polly.Joanna", language: "en-US" },
-            availability.reason || aiResponse.response
-          );
+          playDeepgramTTS(twiml, availability.reason || aiResponse.response);
           twiml.pause({ length: 1 });
           twiml.gather({
             input: ["speech"],
@@ -354,8 +371,8 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
         }
       } catch (error) {
         console.error(`[GATHER] ❌ Error booking:`, error);
-        twiml.say(
-          { voice: "Polly.Joanna", language: "en-US" },
+        playDeepgramTTS(
+          twiml,
           "I'm sorry, there was an error. Please call back later."
         );
         twiml.hangup();
@@ -365,10 +382,7 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
         `[GATHER] ⚠️  Invalid date/time parsed, continuing conversation`
       );
       // Invalid date/time - continue conversation
-      twiml.say(
-        { voice: "Polly.Joanna", language: "en-US" },
-        aiResponse.response
-      );
+      playDeepgramTTS(twiml, aiResponse.response);
       twiml.pause({ length: 1 });
       twiml.gather({
         input: ["speech"],
@@ -384,10 +398,7 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
     session.status = "collecting";
     sessionStore.updateSession(CallSid, session);
 
-    twiml.say(
-      { voice: "Polly.Joanna", language: "en-US" },
-      aiResponse.response
-    );
+    playDeepgramTTS(twiml, aiResponse.response);
     twiml.pause({ length: 1 });
     twiml.gather({
       input: ["speech"],
