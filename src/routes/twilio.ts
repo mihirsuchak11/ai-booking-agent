@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import twilio from "twilio";
 import { config } from "../config/env";
 import { sessionStore, CallSession } from "../state/sessions";
+import { streamingSessionStore } from "../state/streaming-session";
 import { processConversation } from "../services/openai";
 import { parseDateTime } from "../services/calendar";
 import {
@@ -10,6 +11,7 @@ import {
 } from "../db/business";
 import { createCallSession, updateCallSession } from "../db/sessions";
 import { checkDbAvailability, createDbBooking } from "../db/bookings";
+import { getMediaStreamUrl } from "./media-stream";
 
 const router = express.Router();
 const VoiceResponse = twilio.twiml.VoiceResponse;
@@ -19,6 +21,7 @@ router.post("/voice/incoming", async (req: Request, res: Response) => {
   const { CallSid, From, To } = req.body;
 
   console.log(`[INCOMING] Call: ${CallSid} from ${From} to ${To}`);
+  console.log(`[INCOMING] Streaming mode: ${config.streamingMode}`);
 
   res.set({
     "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -41,6 +44,37 @@ router.post("/voice/incoming", async (req: Request, res: Response) => {
     return;
   }
 
+  const twiml = new VoiceResponse();
+
+  // Use streaming mode for human-like voice experience
+  if (config.streamingMode) {
+    console.log(`[INCOMING] 🎙️ Using Media Streams for real-time voice`);
+    
+    // Connect to Media Streams WebSocket
+    const connect = twiml.connect();
+    const mediaStreamUrl = getMediaStreamUrl(config.serviceUrl);
+    
+    console.log(`[INCOMING] Media Stream URL: ${mediaStreamUrl}`);
+    
+    // Create stream with all parameters
+    const stream = connect.stream({
+      url: mediaStreamUrl,
+    });
+    
+    // Pass custom parameters to the WebSocket handler
+    stream.parameter({ name: "from", value: From });
+    stream.parameter({ name: "to", value: To });
+    stream.parameter({ name: "businessId", value: businessId });
+    stream.parameter({ name: "callSid", value: CallSid });
+
+    res.type("text/xml");
+    res.send(twiml.toString());
+    return;
+  }
+
+  // Fallback: Use traditional gather/say flow
+  console.log(`[INCOMING] Using traditional Gather/Say flow`);
+
   // Create in-memory session
   let session = sessionStore.getSession(CallSid);
   if (!session) {
@@ -59,7 +93,6 @@ router.post("/voice/incoming", async (req: Request, res: Response) => {
   }
 
   // Redirect to gather - AI will handle greeting
-  const twiml = new VoiceResponse();
   twiml.redirect(
     { method: "POST" },
     `${config.serviceUrl}/twilio/voice/gather`
@@ -351,8 +384,10 @@ router.post("/voice/status", async (req: Request, res: Response) => {
       ended_at: new Date().toISOString(),
     });
 
-    setTimeout(() => {
+    // Clean up both session types
+    setTimeout(async () => {
       sessionStore.deleteSession(CallSid);
+      await streamingSessionStore.delete(CallSid);
     }, 60000);
   }
 

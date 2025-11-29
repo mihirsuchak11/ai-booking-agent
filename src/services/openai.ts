@@ -3,6 +3,33 @@ import { config } from "../config/env";
 import { CallSession } from "../state/sessions";
 import { BusinessConfigWithDetails } from "../db/types";
 
+// Simplified session interface for streaming sessions
+export interface StreamingSessionData {
+  callSid: string;
+  from: string;
+  to: string;
+  businessId?: string;
+  conversationHistory: Array<{ role: "user" | "assistant"; content: string }>;
+  collectedData: {
+    customerName?: string;
+    appointmentDate?: string;
+    appointmentTime?: string;
+    phoneNumber?: string;
+  };
+  status: "collecting" | "completed" | "failed";
+  createdAt: Date;
+}
+
+export interface StreamingResponse {
+  response: string;
+  isComplete: boolean;
+  extractedData?: {
+    customerName: string;
+    appointmentDate: string;
+    appointmentTime: string;
+  };
+}
+
 function buildSystemPrompt(
   businessConfig: BusinessConfigWithDetails | null
 ): string {
@@ -67,6 +94,91 @@ If you're still collecting information OR waiting for confirmation, respond with
 }
 
 IMPORTANT: The moment the caller confirms the appointment details, return status: "complete" immediately. Do not wait for another turn.`;
+
+  return prompt;
+}
+
+/**
+ * Build an enhanced system prompt for more human-like conversations
+ * Used by the streaming voice agent
+ */
+function buildHumanLikeSystemPrompt(
+  businessConfig: BusinessConfigWithDetails | null
+): string {
+  const businessName = businessConfig?.business.name || config.business.name;
+  const timezone =
+    businessConfig?.business.timezone || config.business.timezone;
+  const minNoticeHours =
+    businessConfig?.config?.min_notice_hours ||
+    config.business.minimumNoticeHours;
+  const greeting = businessConfig?.config?.greeting || null;
+  const notesForAi = businessConfig?.config?.notes_for_ai || null;
+
+  const now = new Date();
+  const currentDate = now.toLocaleDateString("en-US", { timeZone: timezone });
+  const currentTime = now.toLocaleTimeString("en-US", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  let prompt = `You are a warm, friendly receptionist for ${businessName}. You're having a real phone conversation.
+
+PERSONALITY:
+- Sound genuinely happy to help, like a real person who enjoys their job
+- Use natural conversational fillers: "Let me check that for you...", "Okay, got it!", "Perfect!"
+- Match the caller's energy—if they're in a hurry, be efficient; if they're chatty, be warm
+- Use the caller's name once you learn it
+- NEVER sound robotic or scripted
+
+VOICE BEHAVIOR:
+- Keep responses SHORT (1-2 sentences max) - this is a phone call, not an email
+- Speak naturally, as if talking to a friend
+- Use contractions: "I'll", "you're", "that's", "we've"
+- Add brief acknowledgments: "Got it", "Sure thing", "Absolutely"
+
+CONVERSATION FLOW:
+1. ${greeting ? `Greet with: "${greeting}"` : `Greet warmly: "Hi there! Thanks for calling ${businessName}. How can I help you today?"`}
+2. Collect: name, preferred date/time for appointment
+3. Confirm details naturally: "So just to make sure I have this right, [name], you'd like to come in on [date] at [time]?"
+4. After confirmation, complete the booking
+
+HANDLING CONFUSION:
+- If you don't understand, say something like "I want to make sure I get this right—did you say [what you heard]?"
+- Never just say "I didn't catch that"—always give context
+- If they seem frustrated: "I totally understand, let me help sort this out"
+
+EMOTIONAL AWARENESS:
+- If caller sounds rushed: be efficient, skip small talk
+- If caller sounds uncertain: be reassuring "No worries, we can figure out the best time together"
+- If caller confirms: sound genuinely pleased "Wonderful! You're all set"
+${notesForAi ? `\nADDITIONAL INSTRUCTIONS:\n${notesForAi}` : ""}
+
+BUSINESS RULES:
+- Minimum notice required: ${minNoticeHours} hours
+- Timezone: ${timezone}
+- Current date: ${currentDate}
+- Current time: ${currentTime}
+
+RESPONSE FORMAT:
+CRITICAL: You MUST always respond with valid JSON. No plain text responses.
+
+When you have ALL information (name, date, time) AND the caller has confirmed, respond with:
+{
+  "status": "complete",
+  "response": "Wonderful! I've got you down for [date] at [time]. We'll see you then, [name]! Have a great day!",
+  "customerName": "[extracted name]",
+  "appointmentDate": "YYYY-MM-DD",
+  "appointmentTime": "HH:MM"
+}
+
+If you're still collecting information OR waiting for confirmation:
+{
+  "status": "collecting",
+  "response": "Your natural, human-like response"
+}
+
+Remember: You're a real person having a conversation. Be warm, be brief, be helpful.`;
 
   return prompt;
 }
@@ -198,6 +310,195 @@ export async function processConversation(
 
     return {
       response: "I'm sorry, I didn't catch that. Could you say that again?",
+      isComplete: false,
+    };
+  }
+}
+
+/**
+ * Process conversation with streaming for faster responses
+ * Used by the real-time voice agent
+ */
+export async function processConversationStreaming(
+  userMessage: string,
+  session: StreamingSessionData,
+  businessConfig: BusinessConfigWithDetails | null = null
+): Promise<StreamingResponse> {
+  const openai = getOpenAIClient(businessConfig);
+  const systemPrompt = buildHumanLikeSystemPrompt(businessConfig);
+
+  console.log(`[OpenAI Streaming] Processing: "${userMessage.substring(0, 50)}..."`);
+  console.log(`[OpenAI Streaming] History length: ${session.conversationHistory.length}`);
+
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt },
+    ...session.conversationHistory.map((msg) => ({
+      role: msg.role as "user" | "assistant",
+      content: msg.content,
+    })),
+    { role: "user", content: userMessage || "(silence)" },
+  ];
+
+  try {
+    const model =
+      businessConfig?.integration?.openai_model ||
+      businessConfig?.config?.openai_model ||
+      config.openai.model ||
+      "gpt-4o";
+
+    console.log(`[OpenAI Streaming] Using model: ${model}`);
+
+    // Use streaming for faster time-to-first-token
+    const stream = await openai.chat.completions.create({
+      model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 200,
+      stream: true,
+    });
+
+    let fullResponse = "";
+
+    // Collect streamed response
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content || "";
+      fullResponse += content;
+    }
+
+    console.log(`[OpenAI Streaming] Full response: ${fullResponse.substring(0, 300)}`);
+
+    // Parse the JSON response
+    let parsedResponse: any = null;
+    try {
+      parsedResponse = JSON.parse(fullResponse);
+      console.log(`[OpenAI Streaming] ✅ Parsed JSON successfully`);
+    } catch (e) {
+      console.log(`[OpenAI Streaming] ⚠️ Response is NOT JSON, treating as plain text`);
+    }
+
+    if (parsedResponse?.status === "complete") {
+      console.log(`[OpenAI Streaming] ✅ Status is COMPLETE`);
+      return {
+        response: parsedResponse.response || fullResponse,
+        isComplete: true,
+        extractedData: {
+          customerName: parsedResponse.customerName,
+          appointmentDate: parsedResponse.appointmentDate,
+          appointmentTime: parsedResponse.appointmentTime,
+        },
+      };
+    }
+
+    console.log(`[OpenAI Streaming] ⏳ Status is COLLECTING`);
+    return {
+      response: parsedResponse?.response || fullResponse,
+      isComplete: false,
+    };
+  } catch (error: any) {
+    console.error("[OpenAI Streaming] Error:", error?.message);
+
+    if (error?.status === 401) {
+      throw new Error("OpenAI API authentication failed");
+    }
+    if (error?.status === 429) {
+      return {
+        response: "I'm experiencing high demand. Please try again in a moment.",
+        isComplete: false,
+      };
+    }
+
+    return {
+      response: "I'm sorry, I didn't quite catch that. Could you say that again?",
+      isComplete: false,
+    };
+  }
+}
+
+/**
+ * Process conversation with streaming and callback for each chunk
+ * Allows TTS to start before full response is received
+ */
+export async function processConversationWithChunks(
+  userMessage: string,
+  session: StreamingSessionData,
+  businessConfig: BusinessConfigWithDetails | null = null,
+  onChunk?: (chunk: string) => void
+): Promise<StreamingResponse> {
+  const openai = getOpenAIClient(businessConfig);
+  const systemPrompt = buildHumanLikeSystemPrompt(businessConfig);
+
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt },
+    ...session.conversationHistory.map((msg) => ({
+      role: msg.role as "user" | "assistant",
+      content: msg.content,
+    })),
+    { role: "user", content: userMessage || "(silence)" },
+  ];
+
+  try {
+    const model =
+      businessConfig?.integration?.openai_model ||
+      businessConfig?.config?.openai_model ||
+      config.openai.model ||
+      "gpt-4o";
+
+    const stream = await openai.chat.completions.create({
+      model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 200,
+      stream: true,
+    });
+
+    let fullResponse = "";
+    let buffer = "";
+
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content || "";
+      fullResponse += content;
+      buffer += content;
+
+      // Emit chunks at sentence boundaries for more natural TTS
+      if (onChunk && /[.!?,]/.test(buffer)) {
+        onChunk(buffer);
+        buffer = "";
+      }
+    }
+
+    // Emit any remaining buffer
+    if (onChunk && buffer.trim()) {
+      onChunk(buffer);
+    }
+
+    // Parse the full response
+    let parsedResponse: any = null;
+    try {
+      parsedResponse = JSON.parse(fullResponse);
+    } catch (e) {
+      // Not JSON
+    }
+
+    if (parsedResponse?.status === "complete") {
+      return {
+        response: parsedResponse.response || fullResponse,
+        isComplete: true,
+        extractedData: {
+          customerName: parsedResponse.customerName,
+          appointmentDate: parsedResponse.appointmentDate,
+          appointmentTime: parsedResponse.appointmentTime,
+        },
+      };
+    }
+
+    return {
+      response: parsedResponse?.response || fullResponse,
+      isComplete: false,
+    };
+  } catch (error: any) {
+    console.error("[OpenAI Chunks] Error:", error?.message);
+    return {
+      response: "I'm sorry, I didn't quite catch that. Could you say that again?",
       isComplete: false,
     };
   }

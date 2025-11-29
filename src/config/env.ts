@@ -14,6 +14,15 @@ export const config = {
 
   openai: {
     apiKey: process.env.OPENAI_API_KEY!,
+    model: process.env.OPENAI_MODEL || "gpt-4o",
+  },
+
+  // Deepgram configuration (STT + TTS)
+  deepgram: {
+    apiKey: process.env.DEEPGRAM_API_KEY!,
+    sttModel: process.env.DEEPGRAM_STT_MODEL || "nova-2",
+    ttsModel: process.env.DEEPGRAM_TTS_MODEL || "aura-asteria-en",
+    language: process.env.DEEPGRAM_LANGUAGE || "en-US",
   },
 
   google: {
@@ -35,6 +44,9 @@ export const config = {
 
   // Testing mode - bypasses Google Calendar integration
   testMode: process.env.TEST_MODE === "true",
+
+  // Streaming mode - use Media Streams for real-time voice
+  streamingMode: process.env.STREAMING_MODE !== "false", // Default to true
 
   // Supabase (optional - will use DB if provided)
   supabase: {
@@ -60,6 +72,11 @@ if (!config.testMode) {
   );
 }
 
+// Streaming mode requires Deepgram (for both STT and TTS)
+if (config.streamingMode) {
+  requiredVars.push("DEEPGRAM_API_KEY");
+}
+
 for (const varName of requiredVars) {
   if (!process.env[varName] || process.env[varName]?.includes("your_")) {
     throw new Error(`Missing required environment variable: ${varName}`);
@@ -69,5 +86,11 @@ for (const varName of requiredVars) {
 if (config.testMode) {
   console.log(
     "⚠️  TEST MODE ENABLED - Google Calendar integration is bypassed"
+  );
+}
+
+if (config.streamingMode) {
+  console.log(
+    "🎙️  STREAMING MODE ENABLED - Using Deepgram (STT + TTS) for human-like voice"
   );
 }

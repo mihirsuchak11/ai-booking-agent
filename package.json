@@ -10,19 +10,23 @@
     "type-check": "tsc --noEmit",
     "test:api": "node test-api.js",
     "test:openai": "node test-openai.js",
-    "test:booking": "node test-booking-flow.js"
+    "test:booking": "node test-booking-flow.js",
+    "test:deepgram": "tsx test-deepgram.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@deepgram/sdk": "^3.13.0",
     "@supabase/supabase-js": "^2.81.1",
+    "@types/ws": "^8.18.1",
     "axios": "^1.13.2",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "googleapis": "^126.0.1",
     "openai": "^4.20.1",
-    "twilio": "^4.19.0"
+    "twilio": "^4.19.0",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
