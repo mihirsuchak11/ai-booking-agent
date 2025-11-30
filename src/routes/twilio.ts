@@ -134,6 +134,8 @@ router.post("/voice/incoming", async (req: Request, res: Response) => {
 router.post("/voice/gather", async (req: Request, res: Response) => {
   const { CallSid, SpeechResult, From } = req.body;
 
+  const tStart = Date.now();
+
   res.set({
     "Cache-Control": "no-cache, no-store, must-revalidate",
     Pragma: "no-cache",
@@ -162,29 +164,17 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
     const isFirstCall = session.conversationHistory.length === 0;
 
     if (isFirstCall) {
-      // This is the first call - send greeting
-      console.log(`[GATHER] First call - sending greeting`);
-      const aiResponse = await processConversation("", session, businessConfig);
+      // First call with no speech after greeting - gently reprompt
+      console.log(`[GATHER] First call - no speech, reprompting`);
       const twiml = new VoiceResponse();
       playDeepgramTTS(
         twiml,
-        aiResponse.response ||
-          "Hello! Thank you for calling. How can I help you today?"
+        "I didn't hear anything. How can I help you today?"
       );
 
-      // Add greeting to history
-      session.conversationHistory.push({
-        role: "assistant",
-        content:
-          aiResponse.response ||
-          "Hello! Thank you for calling. How can I help you today?",
-      });
-      sessionStore.updateSession(CallSid, session);
-
-      twiml.pause({ length: 1 });
       twiml.gather({
         input: ["speech"],
-        speechTimeout: "3",
+        speechTimeout: "auto",
         action: `${config.serviceUrl}/twilio/voice/gather`,
         method: "POST",
         language: "en-US",
@@ -208,10 +198,9 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
       );
 
       if (retryCount < 3) {
-        twiml.pause({ length: 1 });
         twiml.gather({
           input: ["speech"],
-          speechTimeout: "3",
+          speechTimeout: "auto",
           action: `${config.serviceUrl}/twilio/voice/gather`,
           method: "POST",
           language: "en-US",
@@ -238,11 +227,16 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
   // Process with OpenAI (businessConfig already loaded above)
   let aiResponse;
   try {
+    const tLlmStart = Date.now();
     console.log(`[GATHER] Processing: "${userMessage}"`);
     aiResponse = await processConversation(
       userMessage,
       session,
       businessConfig
+    );
+    const tLlmEnd = Date.now();
+    console.log(
+      `[LATENCY] LLM duration: ${tLlmEnd - tLlmStart}ms (CallSid=${CallSid})`
     );
   } catch (error: any) {
     console.error(`[GATHER] Error:`, error?.message);
@@ -291,6 +285,12 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
       twiml.hangup();
       res.type("text/xml");
       res.send(twiml.toString());
+      const tEnd = Date.now();
+      console.log(
+        `[LATENCY] Full turn (user -> LLM -> TTS) took ${
+          tEnd - tStart
+        }ms (CallSid=${CallSid})`
+      );
       return;
     }
 

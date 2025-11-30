@@ -46,14 +46,6 @@ function buildSystemPrompt(
   const greeting = businessConfig?.config?.greeting || null;
   const notesForAi = businessConfig?.config?.notes_for_ai || null;
 
-  const now = new Date();
-  const currentDate = now.toLocaleDateString("en-US", { timeZone: timezone });
-  const currentTime = now.toLocaleTimeString("en-US", {
-    timeZone: timezone,
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
   let prompt = `#Role
 You are a warm, friendly receptionist for ${businessName}, speaking to callers over the phone. Your task is to help them book appointments naturally and efficiently.
 
@@ -112,12 +104,6 @@ ${
 
 ${notesForAi ? `\n#Additional Instructions\n${notesForAi}` : ""}
 
-#Business Rules
-- Minimum notice required: ${minNoticeHours} hours
-- Timezone: ${timezone}
-- Current date: ${currentDate}
-- Current time: ${currentTime}
-
 #Response Format
 CRITICAL: You MUST always respond with valid JSON. No plain text responses.
 
@@ -157,14 +143,6 @@ function buildHumanLikeSystemPrompt(
   const greeting = businessConfig?.config?.greeting || null;
   const notesForAi = businessConfig?.config?.notes_for_ai || null;
 
-  const now = new Date();
-  const currentDate = now.toLocaleDateString("en-US", { timeZone: timezone });
-  const currentTime = now.toLocaleTimeString("en-US", {
-    timeZone: timezone,
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
   let prompt = `You are a warm, friendly receptionist for ${businessName}. You're having a real phone conversation.
 
 PERSONALITY:
@@ -176,7 +154,7 @@ PERSONALITY:
 
 VOICE BEHAVIOR:
 - Keep responses SHORT (1-2 sentences max) - this is a phone call, not an email
-- Speak naturally, as if talking to a friend
+- Speak naturally, as if talking to a friend, and sound like a calm, friendly male receptionist
 - Use contractions: "I'll", "you're", "that's", "we've"
 - Add brief acknowledgments: "Got it", "Sure thing", "Absolutely"
 
@@ -200,12 +178,6 @@ EMOTIONAL AWARENESS:
 - If caller sounds uncertain: be reassuring "No worries, we can figure out the best time together"
 - If caller confirms: sound genuinely pleased "Wonderful! You're all set"
 ${notesForAi ? `\nADDITIONAL INSTRUCTIONS:\n${notesForAi}` : ""}
-
-BUSINESS RULES:
-- Minimum notice required: ${minNoticeHours} hours
-- Timezone: ${timezone}
-- Current date: ${currentDate}
-- Current time: ${currentTime}
 
 RESPONSE FORMAT:
 CRITICAL: You MUST always respond with valid JSON. No plain text responses.
@@ -285,9 +257,7 @@ export async function processConversation(
     const model =
       businessConfig?.integration?.openai_model ||
       businessConfig?.config?.openai_model ||
-      process.env.OPENAI_MODEL ||
-      config.openai.model ||
-      "gpt-4o";
+      config.openai.model;
     console.log(`[OpenAI] Using model: ${model}`);
 
     const timeoutMs = 10000;
@@ -298,8 +268,8 @@ export async function processConversation(
     const completionPromise = openai.chat.completions.create({
       model,
       messages,
-      temperature: 0.7,
-      max_tokens: 200,
+      temperature: 0.6,
+      max_tokens: 100,
     });
 
     const completion = (await Promise.race([
@@ -425,8 +395,7 @@ export async function processConversationStreaming(
     const model =
       businessConfig?.integration?.openai_model ||
       businessConfig?.config?.openai_model ||
-      config.openai.model ||
-      "gpt-4o";
+      config.openai.model;
 
     console.log(`[OpenAI Streaming] Using model: ${model}`);
 

@@ -14,7 +14,7 @@ export const config = {
 
   openai: {
     apiKey: process.env.OPENAI_API_KEY!,
-    model: process.env.OPENAI_MODEL || "gpt-4o",
+    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
   },
 
   // Anthropic Claude configuration
@@ -30,7 +30,7 @@ export const config = {
   deepgram: {
     apiKey: process.env.DEEPGRAM_API_KEY!,
     sttModel: process.env.DEEPGRAM_STT_MODEL || "nova-2",
-    ttsModel: process.env.DEEPGRAM_TTS_MODEL || "aura-asteria-en",
+    ttsModel: process.env.DEEPGRAM_TTS_MODEL || "aura-2-odysseus-en",
     language: process.env.DEEPGRAM_LANGUAGE || "en-US",
   },
 

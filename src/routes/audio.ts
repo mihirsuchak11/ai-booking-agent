@@ -20,7 +20,7 @@ router.get("/tts", async (req: Request, res: Response) => {
 
     // Create Deepgram TTS instance with optional voice
     const tts = createDeepgramTTS({
-      model: (voice as string) || config.deepgram.ttsModel || "aura-asteria-en",
+      model: (voice as string) || config.deepgram.ttsModel,
       encoding: "mulaw",
       sampleRate: 8000,
     });

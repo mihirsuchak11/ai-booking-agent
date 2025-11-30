@@ -118,13 +118,17 @@ export class StreamingSession extends EventEmitter {
   }
 
   /**
-   * Start the session - initialize STT and send greeting
+   * Start the session - kick off STT and send greeting
+   * Greeting should NOT wait on STT connection to keep things snappy.
    */
   async start(): Promise<void> {
     try {
       this.setState("initializing");
-      await this.stt.start();
 
+      // Start STT in the background - don't block greeting on this
+      void this.stt.start();
+
+      // Send greeting as soon as the media stream is up
       this.setState("greeting");
       await this.sendGreeting();
 
@@ -165,6 +169,14 @@ export class StreamingSession extends EventEmitter {
     // Clear any pending audio in Twilio
     if (this.clearAudioCallback) {
       this.clearAudioCallback();
+    }
+
+    // Send a brief silence to forcefully interrupt current playback
+    // This creates an immediate audio "break" that stops the current buffer
+    if (this.sendAudioCallback) {
+      // Send empty/silence audio chunk to break the stream
+      const silenceChunk = Buffer.alloc(160).toString("base64"); // ~20ms silence
+      this.sendAudioCallback(silenceChunk);
     }
 
     this.emit("barge_in");
