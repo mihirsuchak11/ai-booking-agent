@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { config } from "../config/env";
 import { CallSession } from "../state/sessions";
-import { BusinessConfigWithDetails } from "../db/types";
+import { BusinessConfigWithDetails, REGIONS, RegionCode } from "../db/types";
 import {
   processConversationAnthropic,
   processConversationAnthropicStreaming,
@@ -46,6 +46,53 @@ function buildSystemPrompt(
   const greeting = businessConfig?.config?.greeting || null;
   const notesForAi = businessConfig?.config?.notes_for_ai || null;
 
+  // Region-specific settings
+  const region = (businessConfig?.business?.region || "US") as RegionCode;
+  const regionConfig = REGIONS[region];
+  const locale = businessConfig?.business?.locale || regionConfig.locale;
+  const dateFormat = businessConfig?.business?.date_format || regionConfig.dateFormat;
+
+  const now = new Date();
+  const currentDate = now.toLocaleDateString(locale, { timeZone: timezone });
+  const currentTime = now.toLocaleTimeString(locale, {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  // Region-specific language instructions
+  let regionInstructions = "";
+  switch (region) {
+    case "GB":
+      regionInstructions = `
+#Regional Language (United Kingdom)
+- Use British English spellings (e.g., "colour", "favourite", "organised")
+- Use British phrases (e.g., "Lovely!", "Brilliant!", "Cheers")
+- Say "mobile" instead of "cell phone"
+- Use 24-hour time format when confirming appointments`;
+      break;
+    case "IN":
+      regionInstructions = `
+#Regional Language (India)
+- Be respectful of Indian naming conventions (may include titles like "ji")
+- Common greetings: "Namaste" can be used if caller uses it first
+- Be aware of common Indian English phrases
+- Use 12-hour time format with AM/PM`;
+      break;
+    case "CA":
+      regionInstructions = `
+#Regional Language (Canada)
+- Use Canadian English (mix of British and American spellings)
+- Be polite and courteous (common Canadian trait)
+- Use 12-hour time format with AM/PM`;
+      break;
+    default: // US
+      regionInstructions = `
+#Regional Language (United States)
+- Use American English spellings
+- Use 12-hour time format with AM/PM`;
+  }
+
   let prompt = `#Role
 You are a warm, friendly receptionist for ${businessName}, speaking to callers over the phone. Your task is to help them book appointments naturally and efficiently.
 
@@ -58,6 +105,7 @@ You are a warm, friendly receptionist for ${businessName}, speaking to callers o
 - If unclear, ask for clarification
 - If the user's message is empty, respond with an empty message
 - If asked about your well-being, respond briefly and kindly
+${regionInstructions}
 
 #Voice-Specific Instructions
 - Speak in a conversational tone—your responses will be spoken aloud
@@ -104,6 +152,14 @@ ${
 
 ${notesForAi ? `\n#Additional Instructions\n${notesForAi}` : ""}
 
+#Business Rules
+- Region: ${regionConfig.name}
+- Date format: ${dateFormat}
+- Minimum notice required: ${minNoticeHours} hours
+- Timezone: ${timezone}
+- Current date: ${currentDate}
+- Current time: ${currentTime}
+
 #Response Format
 CRITICAL: You MUST always respond with valid JSON. No plain text responses.
 
@@ -143,6 +199,31 @@ function buildHumanLikeSystemPrompt(
   const greeting = businessConfig?.config?.greeting || null;
   const notesForAi = businessConfig?.config?.notes_for_ai || null;
 
+  // Region-specific settings
+  const region = (businessConfig?.business?.region || "US") as RegionCode;
+  const regionConfig = REGIONS[region];
+  const locale = businessConfig?.business?.locale || regionConfig.locale;
+  const dateFormat = businessConfig?.business?.date_format || regionConfig.dateFormat;
+
+  // Region-specific language style
+  let regionStyle = "";
+  switch (region) {
+    case "GB":
+      regionStyle = `- Use British English and phrases like "Lovely!", "Brilliant!", "Cheers"
+- Say "mobile" instead of "cell phone"`;
+      break;
+    case "IN":
+      regionStyle = `- Be respectful of Indian naming conventions
+- "Namaste" can be used if caller uses it first`;
+      break;
+    case "CA":
+      regionStyle = `- Use Canadian English (mix of British and American)
+- Be extra polite and courteous`;
+      break;
+    default:
+      regionStyle = `- Use American English`;
+  }
+
   let prompt = `You are a warm, friendly receptionist for ${businessName}. You're having a real phone conversation.
 
 PERSONALITY:
@@ -151,6 +232,7 @@ PERSONALITY:
 - Match the caller's energy—if they're in a hurry, be efficient; if they're chatty, be warm
 - Use the caller's name once you learn it
 - NEVER sound robotic or scripted
+${regionStyle}
 
 VOICE BEHAVIOR:
 - Keep responses SHORT (1-2 sentences max) - this is a phone call, not an email
@@ -177,6 +259,11 @@ EMOTIONAL AWARENESS:
 - If caller sounds rushed: be efficient, skip small talk
 - If caller sounds uncertain: be reassuring "No worries, we can figure out the best time together"
 - If caller confirms: sound genuinely pleased "Wonderful! You're all set"
+
+BUSINESS CONTEXT:
+- Region: ${regionConfig.name}
+- Date format: ${dateFormat}
+- Timezone: ${timezone}
 ${notesForAi ? `\nADDITIONAL INSTRUCTIONS:\n${notesForAi}` : ""}
 
 RESPONSE FORMAT:

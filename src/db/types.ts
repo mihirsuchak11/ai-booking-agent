@@ -1,8 +1,81 @@
+// Region types for multi-region support
+export type RegionCode = "US" | "CA" | "IN" | "GB";
+
+export interface RegionConfig {
+  code: RegionCode;
+  name: string;
+  currency: string;
+  currencySymbol: string;
+  locale: string;
+  dateFormat: string;
+  phonePrefix: string;
+  defaultTimezone: string;
+  deepgramLanguage: string;
+  twilioEdge: string;
+}
+
+export const REGIONS: Record<RegionCode, RegionConfig> = {
+  US: {
+    code: "US",
+    name: "United States",
+    currency: "USD",
+    currencySymbol: "$",
+    locale: "en-US",
+    dateFormat: "MM/DD/YYYY",
+    phonePrefix: "+1",
+    defaultTimezone: "America/New_York",
+    deepgramLanguage: "en-US",
+    twilioEdge: "ashburn",
+  },
+  CA: {
+    code: "CA",
+    name: "Canada",
+    currency: "CAD",
+    currencySymbol: "$",
+    locale: "en-CA",
+    dateFormat: "YYYY-MM-DD",
+    phonePrefix: "+1",
+    defaultTimezone: "America/Toronto",
+    deepgramLanguage: "en-CA",
+    twilioEdge: "toronto",
+  },
+  IN: {
+    code: "IN",
+    name: "India",
+    currency: "INR",
+    currencySymbol: "₹",
+    locale: "en-IN",
+    dateFormat: "DD/MM/YYYY",
+    phonePrefix: "+91",
+    defaultTimezone: "Asia/Kolkata",
+    deepgramLanguage: "en-IN",
+    twilioEdge: "singapore",
+  },
+  GB: {
+    code: "GB",
+    name: "United Kingdom",
+    currency: "GBP",
+    currencySymbol: "£",
+    locale: "en-GB",
+    dateFormat: "DD/MM/YYYY",
+    phonePrefix: "+44",
+    defaultTimezone: "Europe/London",
+    deepgramLanguage: "en-GB",
+    twilioEdge: "dublin",
+  },
+};
+
 export interface Business {
   id: string;
   name: string;
   timezone: string;
   default_phone_number: string | null;
+  region: RegionCode;
+  country_code: string;
+  currency: string;
+  locale: string;
+  date_format: string;
+  phone_format: string | null;
   created_at: string;
 }
 

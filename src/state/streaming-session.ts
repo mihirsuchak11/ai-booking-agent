@@ -5,7 +5,7 @@ import {
   processConversationStreaming,
   StreamingResponse,
 } from "../services/openai";
-import { BusinessConfigWithDetails } from "../db/types";
+import { BusinessConfigWithDetails, REGIONS, RegionCode } from "../db/types";
 
 export type SessionState =
   | "initializing"
@@ -86,13 +86,12 @@ export class StreamingSession extends EventEmitter {
     this.businessId = config.businessId;
     this.businessConfig = config.businessConfig || null;
 
-    // Initialize STT with language
+    // Initialize STT with language based on region (preferred) or timezone (fallback)
     const language =
-      config.language || config.businessConfig?.business?.timezone
-        ? this.getLanguageFromTimezone(
-            config.businessConfig?.business?.timezone
-          )
-        : "en-US";
+      config.language ||
+      this.getLanguageFromRegion(config.businessConfig?.business?.region) ||
+      this.getLanguageFromTimezone(config.businessConfig?.business?.timezone) ||
+      "en-US";
 
     this.stt = new DeepgramSTT({ language });
 
@@ -483,13 +482,46 @@ export class StreamingSession extends EventEmitter {
   }
 
   /**
-   * Get language from timezone (simple heuristic)
+   * Get language from region (preferred method)
+   */
+  private getLanguageFromRegion(region?: RegionCode | string): string | null {
+    if (!region) return null;
+
+    const regionConfig = REGIONS[region as RegionCode];
+    if (regionConfig) {
+      return regionConfig.deepgramLanguage;
+    }
+
+    return null;
+  }
+
+  /**
+   * Get language from timezone (fallback heuristic)
    */
   private getLanguageFromTimezone(timezone?: string): string {
     if (!timezone) return "en-US";
 
     const tzLower = timezone.toLowerCase();
 
+    // Check for UK timezones
+    if (tzLower.includes("europe/london")) {
+      return "en-GB";
+    }
+    // Check for Indian timezones
+    if (tzLower.includes("asia/kolkata")) {
+      return "en-IN";
+    }
+    // Check for Canadian timezones
+    if (
+      tzLower.includes("america/toronto") ||
+      tzLower.includes("america/vancouver") ||
+      tzLower.includes("america/edmonton") ||
+      tzLower.includes("america/winnipeg") ||
+      tzLower.includes("america/halifax")
+    ) {
+      return "en-CA";
+    }
+    // Spanish
     if (
       tzLower.includes("europe/madrid") ||
       tzLower.includes("america/mexico")
@@ -504,9 +536,6 @@ export class StreamingSession extends EventEmitter {
     }
     if (tzLower.includes("asia/tokyo")) {
       return "ja-JP";
-    }
-    if (tzLower.includes("asia/kolkata")) {
-      return "hi-IN";
     }
 
     return "en-US";

@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config/env";
 import { CallSession } from "../state/sessions";
-import { BusinessConfigWithDetails } from "../db/types";
+import { BusinessConfigWithDetails, REGIONS, RegionCode } from "../db/types";
 import { StreamingSessionData, StreamingResponse } from "./openai";
 
 function buildSystemPrompt(
@@ -16,13 +16,53 @@ function buildSystemPrompt(
   const greeting = businessConfig?.config?.greeting || null;
   const notesForAi = businessConfig?.config?.notes_for_ai || null;
 
+  // Region-specific settings
+  const region = (businessConfig?.business?.region || "US") as RegionCode;
+  const regionConfig = REGIONS[region];
+  const locale = businessConfig?.business?.locale || regionConfig.locale;
+  const dateFormat =
+    businessConfig?.business?.date_format || regionConfig.dateFormat;
+
   const now = new Date();
-  const currentDate = now.toLocaleDateString("en-US", { timeZone: timezone });
-  const currentTime = now.toLocaleTimeString("en-US", {
+  const currentDate = now.toLocaleDateString(locale, { timeZone: timezone });
+  const currentTime = now.toLocaleTimeString(locale, {
     timeZone: timezone,
     hour: "2-digit",
     minute: "2-digit",
   });
+
+  // Region-specific language instructions
+  let regionInstructions = "";
+  switch (region) {
+    case "GB":
+      regionInstructions = `
+#Regional Language (United Kingdom)
+- Use British English spellings (e.g., "colour", "favourite", "organised")
+- Use British phrases (e.g., "Lovely!", "Brilliant!", "Cheers")
+- Say "mobile" instead of "cell phone"
+- Use 24-hour time format when confirming appointments`;
+      break;
+    case "IN":
+      regionInstructions = `
+#Regional Language (India)
+- Be respectful of Indian naming conventions (may include titles like "ji")
+- Common greetings: "Namaste" can be used if caller uses it first
+- Be aware of common Indian English phrases
+- Use 12-hour time format with AM/PM`;
+      break;
+    case "CA":
+      regionInstructions = `
+#Regional Language (Canada)
+- Use Canadian English (mix of British and American spellings)
+- Be polite and courteous (common Canadian trait)
+- Use 12-hour time format with AM/PM`;
+      break;
+    default: // US
+      regionInstructions = `
+#Regional Language (United States)
+- Use American English spellings
+- Use 12-hour time format with AM/PM`;
+  }
 
   let prompt = `#Role
 You are a warm, friendly receptionist for ${businessName}, speaking to callers over the phone. Your task is to help them book appointments naturally and efficiently.
@@ -36,6 +76,7 @@ You are a warm, friendly receptionist for ${businessName}, speaking to callers o
 - If unclear, ask for clarification
 - If the user's message is empty, respond with an empty message
 - If asked about your well-being, respond briefly and kindly
+${regionInstructions}
 
 #Voice-Specific Instructions
 - Speak in a conversational tone—your responses will be spoken aloud
@@ -53,7 +94,11 @@ You are a warm, friendly receptionist for ${businessName}, speaking to callers o
 - Use the caller's name once you learn it
 
 #Call Flow Objective
-${greeting ? `- Greet with: "${greeting}"` : `- Greet warmly: "Hi there! Thanks for calling ${businessName}. How can I help you today?"`}
+${
+  greeting
+    ? `- Greet with: "${greeting}"`
+    : `- Greet warmly: "Hi there! Thanks for calling ${businessName}. How can I help you today?"`
+}
 
 - Collect the following information naturally:
   1. Customer name
@@ -79,6 +124,8 @@ ${greeting ? `- Greet with: "${greeting}"` : `- Greet warmly: "Hi there! Thanks 
 ${notesForAi ? `\n#Additional Instructions\n${notesForAi}` : ""}
 
 #Business Rules
+- Region: ${regionConfig.name}
+- Date format: ${dateFormat}
 - Minimum notice required: ${minNoticeHours} hours
 - Timezone: ${timezone}
 - Current date: ${currentDate}
@@ -131,7 +178,9 @@ export async function processConversationAnthropic(
   const systemPrompt = buildSystemPrompt(businessConfig);
 
   console.log(`[Anthropic] Processing: "${userMessage.substring(0, 50)}..."`);
-  console.log(`[Anthropic] History length: ${session.conversationHistory.length}`);
+  console.log(
+    `[Anthropic] History length: ${session.conversationHistory.length}`
+  );
   console.log(
     `[Anthropic] Business: ${businessConfig?.business.name || "default"}`
   );
@@ -179,9 +228,7 @@ export async function processConversationAnthropic(
     ])) as Anthropic.Messages.Message;
 
     const assistantMessage =
-      completion.content[0]?.type === "text"
-        ? completion.content[0].text
-        : "";
+      completion.content[0]?.type === "text" ? completion.content[0].text : "";
 
     console.log(
       `[Anthropic] Raw response (first 300 chars): ${assistantMessage.substring(
@@ -200,7 +247,9 @@ export async function processConversationAnthropic(
       );
     } catch (e) {
       // Not JSON, treat as regular response
-      console.log(`[Anthropic] ⚠️  Response is NOT JSON, treating as plain text`);
+      console.log(
+        `[Anthropic] ⚠️  Response is NOT JSON, treating as plain text`
+      );
     }
 
     if (parsedResponse?.status === "complete") {
@@ -219,7 +268,9 @@ export async function processConversationAnthropic(
       };
     }
 
-    console.log(`[Anthropic] ⏳ Status is COLLECTING - continuing conversation`);
+    console.log(
+      `[Anthropic] ⏳ Status is COLLECTING - continuing conversation`
+    );
     return {
       response: parsedResponse?.response || assistantMessage,
       isComplete: false,
@@ -261,8 +312,12 @@ export async function processConversationAnthropicStreaming(
   const anthropic = getAnthropicClient(businessConfig);
   const systemPrompt = buildSystemPrompt(businessConfig);
 
-  console.log(`[Anthropic Streaming] Processing: "${userMessage.substring(0, 50)}..."`);
-  console.log(`[Anthropic Streaming] History length: ${session.conversationHistory.length}`);
+  console.log(
+    `[Anthropic Streaming] Processing: "${userMessage.substring(0, 50)}..."`
+  );
+  console.log(
+    `[Anthropic Streaming] History length: ${session.conversationHistory.length}`
+  );
 
   const model =
     businessConfig?.integration?.anthropic_model ||
@@ -296,12 +351,17 @@ export async function processConversationAnthropicStreaming(
     let fullResponse = "";
 
     for await (const event of stream) {
-      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+      if (
+        event.type === "content_block_delta" &&
+        event.delta.type === "text_delta"
+      ) {
         fullResponse += event.delta.text;
       }
     }
 
-    console.log(`[Anthropic Streaming] Full response: ${fullResponse.substring(0, 300)}`);
+    console.log(
+      `[Anthropic Streaming] Full response: ${fullResponse.substring(0, 300)}`
+    );
 
     // Parse the JSON response
     let parsedResponse: any = null;
@@ -309,7 +369,9 @@ export async function processConversationAnthropicStreaming(
       parsedResponse = JSON.parse(fullResponse);
       console.log(`[Anthropic Streaming] ✅ Parsed JSON successfully`);
     } catch (e) {
-      console.log(`[Anthropic Streaming] ⚠️ Response is NOT JSON, treating as plain text`);
+      console.log(
+        `[Anthropic Streaming] ⚠️ Response is NOT JSON, treating as plain text`
+      );
     }
 
     if (parsedResponse?.status === "complete") {
@@ -344,9 +406,9 @@ export async function processConversationAnthropicStreaming(
     }
 
     return {
-      response: "I'm sorry, I didn't quite catch that. Could you say that again?",
+      response:
+        "I'm sorry, I didn't quite catch that. Could you say that again?",
       isComplete: false,
     };
   }
 }
-
