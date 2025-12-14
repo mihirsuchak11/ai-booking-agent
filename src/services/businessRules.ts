@@ -14,7 +14,7 @@ export interface BusinessConfig {
 // Parse business hours from env var or use defaults
 function parseBusinessHours(): BusinessHours {
   const hoursJson = process.env.BUSINESS_HOURS_JSON;
-  
+
   if (hoursJson) {
     try {
       return JSON.parse(hoursJson);
@@ -22,7 +22,7 @@ function parseBusinessHours(): BusinessHours {
       console.warn('Invalid BUSINESS_HOURS_JSON, using defaults');
     }
   }
-  
+
   // Default: Monday-Friday, 9 AM - 5 PM
   return {
     monday: [{ start: '09:00', end: '17:00' }],
@@ -65,16 +65,16 @@ function isTimeInRange(
 ): boolean {
   const { hours: startHours, minutes: startMinutes } = parseTime(startTime);
   const { hours: endHours, minutes: endMinutes } = parseTime(endTime);
-  
+
   // Convert time to business timezone
   const timeInTz = new Date(time.toLocaleString('en-US', { timeZone: timezone }));
   const hours = timeInTz.getHours();
   const minutes = timeInTz.getMinutes();
-  
+
   const timeMinutes = hours * 60 + minutes;
   const startMinutesTotal = startHours * 60 + startMinutes;
   const endMinutesTotal = endHours * 60 + endMinutes;
-  
+
   return timeMinutes >= startMinutesTotal && timeMinutes < endMinutesTotal;
 }
 
@@ -84,7 +84,7 @@ export function validateBusinessHours(
 ): { valid: boolean; reason?: string } {
   const businessConfig = getBusinessConfig();
   const dayName = getDayName(startTime, businessConfig.timezone);
-  
+
   // Check if it's a working day
   const dayHours = businessConfig.workingHours[dayName];
   if (!dayHours || dayHours.length === 0) {
@@ -93,7 +93,7 @@ export function validateBusinessHours(
       reason: `We're closed on ${dayName}. Please choose a weekday.`,
     };
   }
-  
+
   // Check if time is within working hours
   let isWithinHours = false;
   for (const slot of dayHours) {
@@ -105,7 +105,7 @@ export function validateBusinessHours(
       break;
     }
   }
-  
+
   if (!isWithinHours) {
     const firstSlot = dayHours[0];
     return {
@@ -113,18 +113,18 @@ export function validateBusinessHours(
       reason: `Our business hours are ${firstSlot.start} to ${dayHours[dayHours.length - 1].end}. Please choose a time within these hours.`,
     };
   }
-  
+
   // Check minimum notice requirement
   const now = new Date();
   const hoursUntilAppointment = (startTime.getTime() - now.getTime()) / (1000 * 60 * 60);
-  
+
   if (hoursUntilAppointment < businessConfig.minimumNoticeHours) {
     return {
       valid: false,
       reason: `We require at least ${businessConfig.minimumNoticeHours} hours notice. Please choose a later time.`,
     };
   }
-  
+
   return { valid: true };
 }
 
@@ -132,8 +132,33 @@ export function getAvailableTimeSlots(date: Date): Array<{ start: string; end: s
   const businessConfig = getBusinessConfig();
   const dayName = getDayName(date, businessConfig.timezone);
   const dayHours = businessConfig.workingHours[dayName] || [];
-  
+
   // Return working hours for the day
   return dayHours;
 }
 
+export function parseDateTime(dateStr: string, timeStr: string): { start: Date; end: Date } | null {
+  try {
+    const businessConfig = getBusinessConfig();
+
+    // Parse date (expecting YYYY-MM-DD format)
+    const [year, month, day] = dateStr.split('-').map(Number);
+
+    // Parse time (expecting HH:MM format in 24-hour)
+    const [hours, minutes] = timeStr.split(':').map(Number);
+
+    // Create date in business timezone
+    const start = new Date();
+    start.setFullYear(year, month - 1, day);
+    start.setHours(hours, minutes, 0, 0);
+
+    // Use configured appointment duration
+    const end = new Date(start);
+    end.setMinutes(end.getMinutes() + businessConfig.appointmentDurationMinutes);
+
+    return { start, end };
+  } catch (error) {
+    console.error('Error parsing date/time:', error);
+    return null;
+  }
+}

@@ -19,10 +19,6 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Audio routes (Deepgram TTS)
-import audioRoutes from "./routes/audio";
-app.use("/audio", audioRoutes);
-
 // Twilio webhook routes
 app.use("/twilio", twilioRoutes);
 
@@ -40,6 +36,9 @@ if (process.env.VERCEL !== "1") {
   if (config.streamingMode) {
     setupMediaStreamWebSocket(server);
     console.log(`🎙️ Media Streams WebSocket enabled at /media-stream`);
+    console.log(`🎤 Streaming mode: OpenAI Realtime API (speech-to-speech)`);
+  } else {
+    console.log(`📞 Traditional mode: Twilio Gather/Say + OpenAI`);
   }
 
   server.listen(PORT, () => {
@@ -47,14 +46,5 @@ if (process.env.VERCEL !== "1") {
     console.log(
       `📞 Twilio webhook URL: ${config.serviceUrl}/twilio/voice/incoming`
     );
-    if (config.streamingMode) {
-      if (config.realtimeMode) {
-        console.log(`🎤 Streaming mode: OpenAI Realtime API (speech-to-speech)`);
-      } else {
-        console.log(`🎤 Streaming mode: Deepgram STT + OpenAI + Deepgram TTS`);
-      }
-    } else {
-      console.log(`📞 Traditional mode: Twilio Gather/Say + OpenAI`);
-    }
   });
 }

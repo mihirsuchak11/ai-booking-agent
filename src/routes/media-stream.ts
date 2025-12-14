@@ -2,10 +2,6 @@ import WebSocket, { WebSocketServer } from "ws";
 import { IncomingMessage } from "http";
 import { Server } from "http";
 import {
-  streamingSessionStore,
-  StreamingSession,
-} from "../state/streaming-session";
-import {
   realtimeSessionStore,
   RealtimeStreamingSession,
 } from "../state/realtime-session";
@@ -15,7 +11,7 @@ import {
 } from "../db/business";
 import { createCallSession, updateCallSession } from "../db/sessions";
 import { checkDbAvailability, createDbBooking } from "../db/bookings";
-import { parseDateTime } from "../services/calendar";
+import { parseDateTime } from "../services/businessRules";
 import { config } from "../config/env";
 
 interface TwilioMediaMessage {
@@ -58,7 +54,7 @@ export function setupMediaStreamWebSocket(server: Server): WebSocketServer {
   wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
     console.log("[MediaStream] New WebSocket connection");
 
-    let session: StreamingSession | RealtimeStreamingSession | null = null;
+    let session: RealtimeStreamingSession | null = null;
     let streamSid: string | null = null;
     let callSid: string | null = null;
     let markCounter = 0;
@@ -104,11 +100,7 @@ export function setupMediaStreamWebSocket(server: Server): WebSocketServer {
       );
 
       if (callSid) {
-        if (config.realtimeMode) {
-          await realtimeSessionStore.delete(callSid);
-        } else {
-          await streamingSessionStore.delete(callSid);
-        }
+        await realtimeSessionStore.delete(callSid);
       }
     });
 
@@ -144,28 +136,16 @@ export function setupMediaStreamWebSocket(server: Server): WebSocketServer {
         businessConfig = await loadBusinessConfig(businessId);
       }
 
-      // Create streaming session (Deepgram or Realtime based on config)
-      if (config.realtimeMode) {
-        console.log("[MediaStream] Using OpenAI Realtime API");
-        session = realtimeSessionStore.create({
-          callSid,
-          streamSid,
-          from,
-          to,
-          businessId,
-          businessConfig,
-        });
-      } else {
-        console.log("[MediaStream] Using Deepgram STT/TTS");
-        session = streamingSessionStore.create({
-          callSid,
-          streamSid,
-          from,
-          to,
-          businessId,
-          businessConfig,
-        });
-      }
+      // Create streaming session
+      console.log("[MediaStream] Using OpenAI Realtime API");
+      session = realtimeSessionStore.create({
+        callSid,
+        streamSid,
+        from,
+        to,
+        businessId,
+        businessConfig,
+      });
 
       // Set up audio callbacks
       session.setAudioCallbacks(
@@ -237,12 +217,8 @@ export function setupMediaStreamWebSocket(server: Server): WebSocketServer {
           });
         }
 
-        // Clean up from appropriate store
-        if (config.realtimeMode) {
-          await realtimeSessionStore.delete(callSid);
-        } else {
-          await streamingSessionStore.delete(callSid);
-        }
+        // Clean up
+        await realtimeSessionStore.delete(callSid);
       }
     }
 
@@ -258,7 +234,7 @@ export function setupMediaStreamWebSocket(server: Server): WebSocketServer {
      * Set up event handlers for the streaming session
      */
     function setupSessionHandlers(
-      session: StreamingSession | RealtimeStreamingSession,
+      session: RealtimeStreamingSession,
       ws: WebSocket
     ): void {
       // Handle booking completion
