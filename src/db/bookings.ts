@@ -25,8 +25,20 @@ export async function checkDbAvailability(
       };
     }
 
-    // TODO: Validate working hours from businessConfig.working_hours JSONB
-    // For now, skip this check
+    // Validate working hours
+    if (businessConfig.working_hours) {
+      const hoursCheck = validateWorkingHours(
+        startTime,
+        endTime,
+        businessConfig.working_hours
+      );
+      if (!hoursCheck.valid) {
+        return {
+          available: false,
+          reason: hoursCheck.reason,
+        };
+      }
+    }
   }
 
   // Check for overlapping bookings
@@ -53,6 +65,79 @@ export async function checkDbAvailability(
   }
 
   return { available: true };
+}
+
+/**
+ * Validate if appointment time falls within business working hours
+ */
+function validateWorkingHours(
+  startTime: Date,
+  endTime: Date,
+  working_hours: any
+): { valid: boolean; reason?: string } {
+  // Get day of week (0 = Sunday, 1 = Monday, etc.)
+  const dayOfWeek = startTime.getDay();
+  const dayNames = [
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ];
+  const dayName = dayNames[dayOfWeek];
+
+  // Check if working_hours has this day
+  const dayHours = working_hours[dayName];
+
+  if (!dayHours) {
+    console.log(`[Validation] No working hours defined for ${dayName}`);
+    return { valid: true }; // If not configured, allow booking
+  }
+
+  // Check if business is open on this day
+  if (!dayHours.isOpen) {
+    const dayNameCapitalized = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+    return {
+      valid: false,
+      reason: `We're closed on ${dayNameCapitalized}s. Please choose another day.`,
+    };
+  }
+
+  // Check time ranges
+  const startHour = startTime.getHours();
+  const startMinute = startTime.getMinutes();
+  const endHour = endTime.getHours();
+  const endMinute = endTime.getMinutes();
+
+  // Parse business hours (format: "HH:MM" or "H:MM")
+  const [openHour, openMinute] = dayHours.start.split(":").map(Number);
+  const [closeHour, closeMinute] = dayHours.end.split(":").map(Number);
+
+  // Convert to minutes for easier comparison
+  const appointmentStart = startHour * 60 + startMinute;
+  const appointmentEnd = endHour * 60 + endMinute;
+  const businessOpen = openHour * 60 + openMinute;
+  const businessClose = closeHour * 60 + closeMinute;
+
+  if (appointmentStart < businessOpen || appointmentEnd > businessClose) {
+    const formatTime = (hour: number, minute: number) => {
+      const period = hour >= 12 ? "PM" : "AM";
+      const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+      return `${displayHour}:${minute.toString().padStart(2, "0")} ${period}`;
+    };
+
+    return {
+      valid: false,
+      reason: `We're only open from ${formatTime(
+        openHour,
+        openMinute
+      )} to ${formatTime(closeHour, closeMinute)} on ${dayName}s.`,
+    };
+  }
+
+  return { valid: true };
 }
 
 export async function createDbBooking(

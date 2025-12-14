@@ -43,6 +43,11 @@ BUSINESS_TIMEZONE          # Your timezone
 APPOINTMENT_DURATION_MINUTES=              # Default appointment length
 MINIMUM_NOTICE_HOURS                       # Minimum advance booking time
 TEST_MODE                               # Set to false when ready for Google Calendar
+
+# OpenAI Realtime API (for lower latency)
+REALTIME_MODE=true                          # Enable OpenAI Realtime API (bypasses Deepgram)
+OPENAI_REALTIME_MODEL=gpt-4o-realtime-preview-2024-12-17  # Realtime model
+OPENAI_REALTIME_VOICE=alloy                 # Voice: alloy, echo, shimmer
 ```
 
 ---

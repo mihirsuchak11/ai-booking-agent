@@ -48,7 +48,11 @@ if (process.env.VERCEL !== "1") {
       `📞 Twilio webhook URL: ${config.serviceUrl}/twilio/voice/incoming`
     );
     if (config.streamingMode) {
-      console.log(`🎤 Streaming mode: Deepgram STT + OpenAI + Deepgram TTS`);
+      if (config.realtimeMode) {
+        console.log(`🎤 Streaming mode: OpenAI Realtime API (speech-to-speech)`);
+      } else {
+        console.log(`🎤 Streaming mode: Deepgram STT + OpenAI + Deepgram TTS`);
+      }
     } else {
       console.log(`📞 Traditional mode: Twilio Gather/Say + OpenAI`);
     }

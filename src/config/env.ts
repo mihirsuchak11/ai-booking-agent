@@ -15,6 +15,9 @@ export const config = {
   openai: {
     apiKey: process.env.OPENAI_API_KEY!,
     model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+    // Realtime API settings
+    realtimeModel: process.env.OPENAI_REALTIME_MODEL || "gpt-4o-realtime-preview-2024-12-17",
+    realtimeVoice: process.env.OPENAI_REALTIME_VOICE || "alloy", // Options: alloy, echo, shimmer
   },
 
   // Anthropic Claude configuration
@@ -59,6 +62,11 @@ export const config = {
   streamingMode:
     process.env.VERCEL === "1" ? false : process.env.STREAMING_MODE !== "false", // Default to true (unless on Vercel)
 
+  // Realtime mode - use OpenAI Realtime API for direct speech-to-speech
+  // When enabled, bypasses Deepgram STT/TTS in favor of OpenAI's native voice pipeline
+  // Provides lower latency but higher cost
+  realtimeMode: process.env.REALTIME_MODE === "true", // Default to false
+
   // Supabase (optional - will use DB if provided)
   supabase: {
     url: process.env.SUPABASE_URL,
@@ -92,9 +100,15 @@ if (!config.testMode) {
   );
 }
 
-// Streaming mode requires Deepgram (for both STT and TTS)
+// Streaming mode requires either Deepgram or OpenAI Realtime
 if (config.streamingMode) {
-  requiredVars.push("DEEPGRAM_API_KEY");
+  if (config.realtimeMode) {
+    // Realtime mode - OpenAI API key already checked above
+    console.log("🚀 REALTIME MODE ENABLED - Using OpenAI Realtime API for speech-to-speech");
+  } else {
+    // Deepgram mode - need Deepgram API key
+    requiredVars.push("DEEPGRAM_API_KEY");
+  }
 }
 
 for (const varName of requiredVars) {
@@ -109,7 +123,7 @@ if (config.testMode) {
   );
 }
 
-if (config.streamingMode) {
+if (config.streamingMode && !config.realtimeMode) {
   console.log(
     "🎙️  STREAMING MODE ENABLED - Using Deepgram (STT + TTS) for human-like voice"
   );

@@ -6,12 +6,17 @@ import {
   StreamingSession,
 } from "../state/streaming-session";
 import {
+  realtimeSessionStore,
+  RealtimeStreamingSession,
+} from "../state/realtime-session";
+import {
   resolveBusinessByPhoneNumber,
   loadBusinessConfig,
 } from "../db/business";
 import { createCallSession, updateCallSession } from "../db/sessions";
 import { checkDbAvailability, createDbBooking } from "../db/bookings";
 import { parseDateTime } from "../services/calendar";
+import { config } from "../config/env";
 
 interface TwilioMediaMessage {
   event: string;
@@ -53,7 +58,7 @@ export function setupMediaStreamWebSocket(server: Server): WebSocketServer {
   wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
     console.log("[MediaStream] New WebSocket connection");
 
-    let session: StreamingSession | null = null;
+    let session: StreamingSession | RealtimeStreamingSession | null = null;
     let streamSid: string | null = null;
     let callSid: string | null = null;
     let markCounter = 0;
@@ -99,7 +104,11 @@ export function setupMediaStreamWebSocket(server: Server): WebSocketServer {
       );
 
       if (callSid) {
-        await streamingSessionStore.delete(callSid);
+        if (config.realtimeMode) {
+          await realtimeSessionStore.delete(callSid);
+        } else {
+          await streamingSessionStore.delete(callSid);
+        }
       }
     });
 
@@ -135,15 +144,28 @@ export function setupMediaStreamWebSocket(server: Server): WebSocketServer {
         businessConfig = await loadBusinessConfig(businessId);
       }
 
-      // Create streaming session
-      session = streamingSessionStore.create({
-        callSid,
-        streamSid,
-        from,
-        to,
-        businessId,
-        businessConfig,
-      });
+      // Create streaming session (Deepgram or Realtime based on config)
+      if (config.realtimeMode) {
+        console.log("[MediaStream] Using OpenAI Realtime API");
+        session = realtimeSessionStore.create({
+          callSid,
+          streamSid,
+          from,
+          to,
+          businessId,
+          businessConfig,
+        });
+      } else {
+        console.log("[MediaStream] Using Deepgram STT/TTS");
+        session = streamingSessionStore.create({
+          callSid,
+          streamSid,
+          from,
+          to,
+          businessId,
+          businessConfig,
+        });
+      }
 
       // Set up audio callbacks
       session.setAudioCallbacks(
@@ -215,7 +237,12 @@ export function setupMediaStreamWebSocket(server: Server): WebSocketServer {
           });
         }
 
-        await streamingSessionStore.delete(callSid);
+        // Clean up from appropriate store
+        if (config.realtimeMode) {
+          await realtimeSessionStore.delete(callSid);
+        } else {
+          await streamingSessionStore.delete(callSid);
+        }
       }
     }
 
@@ -231,7 +258,7 @@ export function setupMediaStreamWebSocket(server: Server): WebSocketServer {
      * Set up event handlers for the streaming session
      */
     function setupSessionHandlers(
-      session: StreamingSession,
+      session: StreamingSession | RealtimeStreamingSession,
       ws: WebSocket
     ): void {
       // Handle booking completion
@@ -250,6 +277,13 @@ export function setupMediaStreamWebSocket(server: Server): WebSocketServer {
         );
         if (!dateTime) {
           console.error("[MediaStream] Invalid date/time for booking");
+
+          // Inform AI about the error so it can tell the user
+          if (session instanceof RealtimeStreamingSession) {
+            session.sendFeedbackToAI(
+              "I apologize, but there was an error processing the date and time. Could you please confirm the date and time again?"
+            );
+          }
           return;
         }
 
@@ -281,15 +315,36 @@ export function setupMediaStreamWebSocket(server: Server): WebSocketServer {
             console.log(
               `[MediaStream] Slot not available: ${availability.reason}`
             );
+
+            // Send feedback to AI so it can inform the user with the specific reason
+            if (session instanceof RealtimeStreamingSession) {
+              session.sendFeedbackToAI(
+                `I apologize, but I cannot book that appointment. ${availability.reason} Would you like to choose a different time?`
+              );
+            }
           }
         } catch (error) {
           console.error("[MediaStream] Error creating booking:", error);
+
+          // Inform AI about the error
+          if (session instanceof RealtimeStreamingSession) {
+            session.sendFeedbackToAI(
+              "I apologize, but there was an error creating your booking. Please try again or call us directly."
+            );
+          }
         }
       });
 
       // Handle session completion
       session.on("session_complete", (data) => {
         console.log("[MediaStream] Session complete:", data);
+
+        // Hang up the call after booking is complete
+        // Give a small delay to let the final message finish playing
+        setTimeout(() => {
+          console.log("[MediaStream] Hanging up call after successful booking");
+          ws.close();
+        }, 2000);
       });
 
       // Handle state changes

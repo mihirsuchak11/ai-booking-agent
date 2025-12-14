@@ -46,8 +46,7 @@ router.post("/voice/incoming", async (req: Request, res: Response) => {
   console.log(`[INCOMING] Call: ${CallSid} from ${From} to ${To}`);
   console.log(`[INCOMING] Streaming mode: ${config.streamingMode}`);
   console.log(
-    `[INCOMING] Environment: ${
-      process.env.VERCEL === "1" ? "Vercel (serverless)" : "Local/Other"
+    `[INCOMING] Environment: ${process.env.VERCEL === "1" ? "Vercel (serverless)" : "Local/Other"
     }`
   );
 
@@ -287,8 +286,7 @@ router.post("/voice/gather", async (req: Request, res: Response) => {
       res.send(twiml.toString());
       const tEnd = Date.now();
       console.log(
-        `[LATENCY] Full turn (user -> LLM -> TTS) took ${
-          tEnd - tStart
+        `[LATENCY] Full turn (user -> LLM -> TTS) took ${tEnd - tStart
         }ms (CallSid=${CallSid})`
       );
       return;
