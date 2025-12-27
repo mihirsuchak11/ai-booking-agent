@@ -60,7 +60,11 @@ async function runTests() {
         'src/services/calendar.ts',
         'src/services/deepgram-stt.ts',
         'src/services/deepgram-tts.ts',
-        'src/routes/audio.ts'
+        'src/routes/audio.ts',
+        'src/services/openai.ts',
+        'src/services/anthropic.ts',
+        'src/state/sessions.ts',
+        'test-api.js'
     ];
 
     let allDeleted = true;

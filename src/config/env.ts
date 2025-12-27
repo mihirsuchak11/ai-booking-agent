@@ -20,15 +20,6 @@ export const config = {
     realtimeVoice: process.env.OPENAI_REALTIME_VOICE || "alloy", // Options: alloy, echo, shimmer
   },
 
-  // Anthropic Claude configuration
-  anthropic: {
-    apiKey: process.env.ANTHROPIC_API_KEY,
-    model: process.env.ANTHROPIC_MODEL || "claude-3-5-haiku-20241022",
-  },
-
-  // LLM Provider selection: "openai" or "anthropic"
-  llmProvider: (process.env.LLM_PROVIDER || "openai") as "openai" | "anthropic",
-
   business: {
     name: process.env.BUSINESS_NAME || "Business",
     timezone: process.env.BUSINESS_TIMEZONE || "America/New_York",
@@ -40,12 +31,7 @@ export const config = {
     minimumNoticeHours: parseInt(process.env.MINIMUM_NOTICE_HOURS || "2", 10),
   },
 
-  // Streaming mode - use Media Streams for real-time voice
-  // Note: Disabled on Vercel because serverless functions don't support WebSockets
-  streamingMode:
-    process.env.VERCEL === "1" ? false : process.env.STREAMING_MODE !== "false", // Default to true (unless on Vercel)
-
-  // Supabase (optional - will use DB if provided)
+  // Supabase (for database)
   supabase: {
     url: process.env.SUPABASE_URL,
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -57,17 +43,8 @@ const requiredVars = [
   "TWILIO_ACCOUNT_SID",
   "TWILIO_AUTH_TOKEN",
   "TWILIO_PHONE_NUMBER",
+  "OPENAI_API_KEY",
 ];
-
-// Add LLM provider API key based on selected provider
-if (config.llmProvider === "anthropic") {
-  if (!config.anthropic.apiKey) {
-    requiredVars.push("ANTHROPIC_API_KEY");
-  }
-} else {
-  // Default to OpenAI
-  requiredVars.push("OPENAI_API_KEY");
-}
 
 for (const varName of requiredVars) {
   if (!process.env[varName] || process.env[varName]?.includes("your_")) {

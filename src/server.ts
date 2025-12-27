@@ -15,7 +15,6 @@ app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
-    streamingMode: config.streamingMode,
   });
 });
 
@@ -32,14 +31,10 @@ if (process.env.VERCEL !== "1") {
   // Create HTTP server
   const server = createServer(app);
 
-  // Set up WebSocket server for Media Streams (if streaming mode enabled)
-  if (config.streamingMode) {
-    setupMediaStreamWebSocket(server);
-    console.log(`🎙️ Media Streams WebSocket enabled at /media-stream`);
-    console.log(`🎤 Streaming mode: OpenAI Realtime API (speech-to-speech)`);
-  } else {
-    console.log(`📞 Traditional mode: Twilio Gather/Say + OpenAI`);
-  }
+  // Set up WebSocket server for Media Streams
+  setupMediaStreamWebSocket(server);
+  console.log(`🎙️ Media Streams WebSocket enabled at /media-stream`);
+  console.log(`🎤 System Mode: OpenAI Realtime`);
 
   server.listen(PORT, () => {
     console.log(`🚀 AI Telecaller service running on port ${PORT}`);
